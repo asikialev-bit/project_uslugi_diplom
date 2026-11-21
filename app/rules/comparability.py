@@ -1,8 +1,16 @@
+from decimal import Decimal
 from typing import List, Set
 
 from pydantic import BaseModel, Field
 
-from app.models import ComparabilityStatus, OrderScenario, PricingUnit, ServiceOffer
+from app.models import (
+    FIXED_UNIT,
+    ComparabilityStatus,
+    OrderScenario,
+    ServiceOffer,
+    Surcharge,
+    get_unit_conversion_factor,
+)
 
 
 class ComparabilityAssessment(BaseModel):
@@ -13,7 +21,21 @@ class ComparabilityAssessment(BaseModel):
 
 
 def _normalize_items(items: List[str]) -> Set[str]:
-    return {item.strip().lower() for item in items if item.strip()}
+    return {" ".join(item.strip().lower().split()) for item in items if item.strip()}
+
+
+def surcharge_matches_conditions(
+    surcharge: Surcharge,
+    scenario_conditions: List[str],
+) -> bool:
+    """Проверяет, активируется ли условная доплата условиями сценария."""
+    if not scenario_conditions:
+        return False
+    norm_conditions = _normalize_items(scenario_conditions)
+    target = (surcharge.condition_description or surcharge.name).strip().lower()
+    if not target:
+        return False
+    return any(cond in target or target in cond for cond in norm_conditions)
 
 
 def check_comparability(
@@ -24,34 +46,49 @@ def check_comparability(
     differences: List[str] = []
     has_hard_mismatch = False
 
-    if offer.min_volume is not None and scenario.volume < offer.min_volume:
-        has_hard_mismatch = True
-        differences.append(
-            f"Требуемый объём ({scenario.volume}) меньше минимального ({offer.min_volume})"
-        )
-
-    if offer.max_volume is not None and scenario.volume > offer.max_volume:
-        has_hard_mismatch = True
-        differences.append(
-            f"Требуемый объём ({scenario.volume}) больше максимального ({offer.max_volume})"
-        )
-
+    conversion_factor: Decimal = Decimal("1")
     if offer.pricing_unit is not None and offer.pricing_unit != scenario.pricing_unit:
-        if offer.pricing_unit == PricingUnit.FIXED:
+        if offer.pricing_unit == FIXED_UNIT:
             differences.append(
-                f"Разные единицы расчёта: у предложения '{offer.pricing_unit.value}', "
-                f"в сценарии '{scenario.pricing_unit.value}' (возможно сравнение по общей сумме)"
+                f"Разные единицы расчёта: у предложения '{offer.pricing_unit}', "
+                f"в сценарии '{scenario.pricing_unit}' (возможно сравнение по общей сумме)"
             )
         else:
-            has_hard_mismatch = True
-            differences.append(
-                f"Несовместимые единицы расчёта: у предложения '{offer.pricing_unit.value}', "
-                f"в сценарии '{scenario.pricing_unit.value}'"
+            factor = get_unit_conversion_factor(
+                scenario.pricing_unit,
+                offer.pricing_unit,
+                scenario.unit_conversions,
             )
+            if factor is not None:
+                conversion_factor = factor
+                differences.append(
+                    f"Применён пересчёт единиц: '{scenario.pricing_unit}' -> "
+                    f"'{offer.pricing_unit}' (коэффициент {factor})"
+                )
+            else:
+                has_hard_mismatch = True
+                differences.append(
+                    f"Несовместимые единицы расчёта: у предложения '{offer.pricing_unit}', "
+                    f"в сценарии '{scenario.pricing_unit}'"
+                )
+
+    effective_volume = scenario.volume * conversion_factor
+    if offer.min_volume is not None and effective_volume < offer.min_volume:
+        has_hard_mismatch = True
+        differences.append(
+            f"Требуемый объём ({effective_volume}) меньше минимального ({offer.min_volume})"
+        )
+
+    if offer.max_volume is not None and effective_volume > offer.max_volume:
+        has_hard_mismatch = True
+        differences.append(
+            f"Требуемый объём ({effective_volume}) больше максимального ({offer.max_volume})"
+        )
 
     exclusions = _normalize_items(offer.exclusions_or_limits)
     required_works = _normalize_items(scenario.required_works)
     required_components = _normalize_items(scenario.required_components)
+    scenario_conditions = _normalize_items(scenario.conditions)
 
     excluded_works = sorted(required_works & exclusions)
     if excluded_works:
@@ -67,6 +104,14 @@ def check_comparability(
         differences.append(
             "Обязательные компоненты указаны в ограничениях предложения: "
             + ", ".join(excluded_components)
+        )
+
+    excluded_conditions = sorted(scenario_conditions & exclusions)
+    if excluded_conditions:
+        has_hard_mismatch = True
+        differences.append(
+            "Условия сценария указаны в ограничениях предложения: "
+            + ", ".join(excluded_conditions)
         )
 
     if offer.included_works and required_works:
@@ -88,13 +133,27 @@ def check_comparability(
                 + ", ".join(missing_components)
             )
 
-    conditional_surcharges = [
-        s.name for s in offer.surcharges if not s.is_mandatory
+    offer_conditions = _normalize_items(offer.conditions)
+    for cond in sorted(scenario_conditions - exclusions):
+        covered_by_offer = cond in offer_conditions
+        covered_by_surcharge = any(
+            surcharge_matches_conditions(s, [cond]) for s in offer.surcharges
+        )
+        if not covered_by_offer and not covered_by_surcharge:
+            differences.append(
+                f"Условие сценария «{cond}» не учтено в условиях и доплатах предложения"
+            )
+
+    unmatched_conditional_surcharges = [
+        s.name
+        for s in offer.surcharges
+        if not s.is_mandatory
+        and not surcharge_matches_conditions(s, scenario.conditions)
     ]
-    if conditional_surcharges:
+    if unmatched_conditional_surcharges:
         differences.append(
             "Есть условные доплаты, требующие уточнения: "
-            + ", ".join(conditional_surcharges)
+            + ", ".join(unmatched_conditional_surcharges)
         )
 
     if has_hard_mismatch:

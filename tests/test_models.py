@@ -9,9 +9,9 @@ from app.models import (
     DataCompleteness,
     OrderScenario,
     PriceLineItem,
-    PricingUnit,
     ServiceOffer,
     Surcharge,
+    normalize_unit,
 )
 
 
@@ -19,34 +19,48 @@ def test_create_valid_service_offer_and_scenario() -> None:
     surcharge = Surcharge(
         name="Выезд за пределы города",
         amount=Decimal("500"),
-        unit=PricingUnit.FIXED,
+        unit="фикс",
         is_mandatory=True,
         condition_description="При удалённости свыше 10 км",
     )
     offer = ServiceOffer(
         id="offer-1",
         provider_name="Исполнитель А",
-        service_title="Базовая уборка офиса",
+        service_title="Базовая услуга",
         base_price=Decimal("100"),
-        pricing_unit=PricingUnit.PER_SQM,
-        included_works=["мытьё полов", "протирка пыли"],
-        included_components=["моющие средства"],
+        pricing_unit="кв.м",
+        included_works=["этап 1", "этап 2"],
+        included_components=["материалы"],
         surcharges=[surcharge],
         min_volume=Decimal("20"),
         max_volume=Decimal("500"),
     )
     scenario = OrderScenario(
         id="scen-1",
-        title="Уборка офиса 50 кв.м",
-        required_works=["мытьё полов"],
+        title="Услуга 50 кв.м",
+        required_works=["этап 1"],
         volume=Decimal("50"),
-        pricing_unit=PricingUnit.PER_SQM,
-        required_components=["моющие средства"],
+        pricing_unit="per_sqm",
+        required_components=["материалы"],
+        unit_conversions={"занятие": Decimal("2")},
     )
 
     assert offer.base_price == Decimal("100")
-    assert offer.surcharges[0].amount == Decimal("500")
-    assert scenario.volume == Decimal("50")
+    assert offer.pricing_unit == "sqm"
+    assert offer.surcharges[0].unit == "fixed"
+    assert scenario.pricing_unit == "sqm"
+    assert scenario.unit_conversions["session"] == Decimal("2")
+
+
+def test_custom_industry_unit_is_accepted() -> None:
+    offer = ServiceOffer(
+        id="offer-custom",
+        provider_name="Агентство",
+        service_title="Ведение рекламы",
+        base_price=Decimal("30000"),
+        pricing_unit="месяц",
+    )
+    assert offer.pricing_unit == normalize_unit("месяц") == "month"
 
 
 def test_negative_price_is_rejected() -> None:

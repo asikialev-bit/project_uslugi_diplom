@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models import OrderScenario, PricingUnit, ServiceOffer
+from app.models import OrderScenario, ServiceOffer
 from app.storage import SQLiteRepository
 
 client = TestClient(app)
@@ -14,15 +14,15 @@ def test_sqlite_repository_crud(tmp_path: Path) -> None:
     offer = ServiceOffer(
         id="offer-1",
         provider_name="Исполнитель А",
-        service_title="Уборка",
+        service_title="Услуга",
         base_price="100",
-        pricing_unit=PricingUnit.PER_SQM,
+        pricing_unit="sqm",
     )
     scenario = OrderScenario(
         id="scen-1",
-        title="Офис 50 кв.м",
+        title="Заказ 50 кв.м",
         volume="50",
-        pricing_unit=PricingUnit.PER_SQM,
+        pricing_unit="sqm",
     )
 
     repo.save_offer(offer)

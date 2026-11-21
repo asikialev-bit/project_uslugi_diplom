@@ -3,6 +3,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from app.models import DataCompleteness, OrderScenario, ServiceOffer
+from app.rules.comparability import surcharge_matches_conditions
 
 
 class CompletenessAssessment(BaseModel):
@@ -39,6 +40,22 @@ def check_completeness(
             missing_info.append(
                 f"Не указано условие применения доплаты «{surcharge.name}»"
             )
+
+    if scenario.conditions:
+        offer_conds = {c.strip().lower() for c in offer.conditions if c.strip()}
+        exclusions = {e.strip().lower() for e in offer.exclusions_or_limits if e.strip()}
+        for cond in scenario.conditions:
+            norm_cond = cond.strip().lower()
+            if not norm_cond:
+                continue
+            in_offer = norm_cond in offer_conds or norm_cond in exclusions
+            in_surcharges = any(
+                surcharge_matches_conditions(s, [cond]) for s in offer.surcharges
+            )
+            if not in_offer and not in_surcharges:
+                missing_info.append(
+                    f"Не подтверждено влияние условия сценария «{cond}» на цену или выполнение"
+                )
 
     if has_critical_missing:
         status = DataCompleteness.INSUFFICIENT

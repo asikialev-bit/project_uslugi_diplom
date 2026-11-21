@@ -1,9 +1,15 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.calculator import compare_offers
+from app.llm import (
+    LLMConfigurationError,
+    OfferExtractionError,
+    OfferExtractor,
+    OpenAICompatibleLLMClient,
+)
 from app.models import ComparisonResult, OrderScenario, ServiceOffer
 from app.storage import SQLiteRepository, resolve_db_path
 
@@ -20,9 +26,26 @@ class CompareRequest(BaseModel):
     offers: List[ServiceOffer]
 
 
+class ExtractOfferRequest(BaseModel):
+    """Запрос на извлечение структурированного предложения из сырого текста."""
+
+    raw_text: str = Field(..., min_length=1, description="Текст предложения конкурента")
+    offer_id: Optional[str] = Field(default=None, description="Необязательный ID")
+    provider_name: Optional[str] = Field(
+        default=None,
+        description="Имя исполнителя, если оно не указано в самом тексте",
+    )
+
+
 def get_repository() -> SQLiteRepository:
     """Возвращает экземпляр хранилища на основе DATABASE_URL."""
     return SQLiteRepository(resolve_db_path())
+
+
+def get_offer_extractor() -> OfferExtractor:
+    """Создаёт экстрактор предложений на основе переменных окружения."""
+    client = OpenAICompatibleLLMClient.from_env()
+    return OfferExtractor(client)
 
 
 @app.get("/health")
@@ -46,6 +69,22 @@ def list_offers(
 ) -> List[ServiceOffer]:
     """Возвращает все сохранённые предложения."""
     return repo.list_offers()
+
+
+@app.post("/offers/extract", response_model=ServiceOffer)
+def extract_offer_from_text(
+    payload: ExtractOfferRequest,
+    extractor: OfferExtractor = Depends(get_offer_extractor),
+) -> ServiceOffer:
+    """Извлекает структурированное предложение из текста через LLM."""
+    try:
+        return extractor.extract(
+            raw_text=payload.raw_text,
+            offer_id=payload.offer_id,
+            provider_name=payload.provider_name,
+        )
+    except OfferExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/scenarios", response_model=OrderScenario)
@@ -82,3 +121,10 @@ def compare_saved_scenario(
         raise HTTPException(status_code=404, detail="Сценарий не найден")
     offers = repo.list_offers()
     return compare_offers(offers, scenario)
+
+
+@app.exception_handler(LLMConfigurationError)
+def handle_llm_config_error(_, exc: LLMConfigurationError):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=503, content={"detail": str(exc)})

@@ -2,28 +2,34 @@ from decimal import Decimal
 from typing import List, Optional, Tuple
 
 from app.models import (
+    FIXED_UNIT,
     ComparabilityStatus,
     ComparisonResult,
     DataCompleteness,
     OrderScenario,
     PriceLineItem,
-    PricingUnit,
     ServiceOffer,
+    get_unit_conversion_factor,
 )
-from app.rules import evaluate_offer
+from app.rules import evaluate_offer, surcharge_matches_conditions
 
 
 def _calculate_unit_amount(
     unit_price: Decimal,
-    unit: PricingUnit,
+    unit: str,
     scenario: OrderScenario,
 ) -> Optional[Decimal]:
-    """Вычисляет сумму для ставки с учётом единицы расчёта сценария."""
-    if unit == PricingUnit.FIXED:
+    """Вычисляет сумму для ставки с учётом единицы расчёта сценария и переводов."""
+    if unit == FIXED_UNIT:
         return unit_price
-    if unit == scenario.pricing_unit:
-        return unit_price * scenario.volume
-    return None
+    factor = get_unit_conversion_factor(
+        scenario.pricing_unit,
+        unit,
+        scenario.unit_conversions,
+    )
+    if factor is None:
+        return None
+    return unit_price * scenario.volume * factor
 
 
 def calculate_comparison(
@@ -38,18 +44,31 @@ def calculate_comparison(
     status = evaluation.comparability.status
     completeness = evaluation.completeness.completeness
 
-    # Проверяем совместимость единиц обязательных доплат независимо от итогового статуса,
-    # чтобы пользователь видел все причины расхождений и неполноты.
+    # Проверяем совместимость единиц обязательных и активированных доплат
+    # независимо от итогового статуса.
+    active_surcharges = []
     for surcharge in offer.surcharges:
+        activated_by_condition = (
+            not surcharge.is_mandatory
+            and surcharge_matches_conditions(surcharge, scenario.conditions)
+        )
+        if not surcharge.is_mandatory and not activated_by_condition:
+            continue
+        active_surcharges.append((surcharge, activated_by_condition))
+
         if (
-            surcharge.is_mandatory
-            and surcharge.unit != PricingUnit.FIXED
-            and surcharge.unit != scenario.pricing_unit
+            surcharge.unit != FIXED_UNIT
+            and get_unit_conversion_factor(
+                scenario.pricing_unit,
+                surcharge.unit,
+                scenario.unit_conversions,
+            )
+            is None
         ):
             differences.append(
-                f"Невозможно рассчитать обязательную доплату «{surcharge.name}»: "
-                f"единица '{surcharge.unit.value}' несовместима со сценарием "
-                f"'{scenario.pricing_unit.value}'"
+                f"Невозможно рассчитать доплату «{surcharge.name}»: "
+                f"единица '{surcharge.unit}' несовместима со сценарием "
+                f"'{scenario.pricing_unit}'"
             )
 
     price_breakdown: List[PriceLineItem] = []
@@ -69,17 +88,22 @@ def calculate_comparison(
             scenario,
         )
         if base_amount is not None:
-            if offer.pricing_unit == PricingUnit.FIXED:
+            if offer.pricing_unit == FIXED_UNIT:
                 base_label = "Базовая стоимость (фиксированная)"
             else:
+                factor = get_unit_conversion_factor(
+                    scenario.pricing_unit,
+                    offer.pricing_unit,
+                    scenario.unit_conversions,
+                )
+                effective_volume = scenario.volume * (factor or Decimal("1"))
                 base_label = (
-                    f"Базовая стоимость ({scenario.volume} x {offer.base_price})"
+                    f"Базовая стоимость ({effective_volume} {offer.pricing_unit} "
+                    f"x {offer.base_price})"
                 )
             price_breakdown.append(PriceLineItem(label=base_label, amount=base_amount))
 
-            for surcharge in offer.surcharges:
-                if not surcharge.is_mandatory:
-                    continue
+            for surcharge, activated_by_condition in active_surcharges:
                 surcharge_amount = _calculate_unit_amount(
                     surcharge.amount,
                     surcharge.unit,
@@ -87,12 +111,19 @@ def calculate_comparison(
                 )
                 if surcharge_amount is None:
                     continue
-                if surcharge.unit == PricingUnit.FIXED:
-                    surcharge_label = f"Доплата: {surcharge.name}"
+                prefix = "Доплата по условию" if activated_by_condition else "Доплата"
+                if surcharge.unit == FIXED_UNIT:
+                    surcharge_label = f"{prefix}: {surcharge.name}"
                 else:
+                    factor = get_unit_conversion_factor(
+                        scenario.pricing_unit,
+                        surcharge.unit,
+                        scenario.unit_conversions,
+                    )
+                    effective_volume = scenario.volume * (factor or Decimal("1"))
                     surcharge_label = (
-                        f"Доплата: {surcharge.name} "
-                        f"({scenario.volume} x {surcharge.amount})"
+                        f"{prefix}: {surcharge.name} "
+                        f"({effective_volume} {surcharge.unit} x {surcharge.amount})"
                     )
                 price_breakdown.append(
                     PriceLineItem(label=surcharge_label, amount=surcharge_amount)
@@ -125,7 +156,11 @@ _STATUS_ORDER = {
 def _sort_key(result: ComparisonResult) -> Tuple[int, int, Decimal]:
     status_rank = _STATUS_ORDER[result.status]
     missing_price_rank = 0 if result.total_estimated_price is not None else 1
-    price = result.total_estimated_price if result.total_estimated_price is not None else Decimal("0")
+    price = (
+        result.total_estimated_price
+        if result.total_estimated_price is not None
+        else Decimal("0")
+    )
     return (status_rank, missing_price_rank, price)
 
 

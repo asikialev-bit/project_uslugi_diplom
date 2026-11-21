@@ -4,18 +4,20 @@ from app.models.domain import (
     DataCompleteness,
     OrderScenario,
     PriceLineItem,
-    PricingUnit,
     ServiceOffer,
     Surcharge,
 )
+from app.models.units import FIXED_UNIT, get_unit_conversion_factor, normalize_unit
 
 __all__ = [
     "ComparabilityStatus",
     "ComparisonResult",
     "DataCompleteness",
+    "FIXED_UNIT",
     "OrderScenario",
     "PriceLineItem",
-    "PricingUnit",
     "ServiceOffer",
     "Surcharge",
+    "get_unit_conversion_factor",
+    "normalize_unit",
 ]

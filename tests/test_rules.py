@@ -4,7 +4,6 @@ from app.models import (
     ComparabilityStatus,
     DataCompleteness,
     OrderScenario,
-    PricingUnit,
     ServiceOffer,
     Surcharge,
 )
@@ -14,11 +13,11 @@ from app.rules import check_comparability, check_completeness, evaluate_offer
 def _base_scenario() -> OrderScenario:
     return OrderScenario(
         id="scen-1",
-        title="Уборка офиса 50 кв.м",
-        required_works=["мытьё полов", "протирка пыли"],
+        title="Услуга 50 кв.м",
+        required_works=["этап 1", "этап 2"],
         volume=Decimal("50"),
-        pricing_unit=PricingUnit.PER_SQM,
-        required_components=["моющие средства"],
+        pricing_unit="sqm",
+        required_components=["материалы"],
     )
 
 
@@ -26,11 +25,11 @@ def _complete_offer() -> ServiceOffer:
     return ServiceOffer(
         id="offer-1",
         provider_name="Исполнитель А",
-        service_title="Уборка офиса",
+        service_title="Базовая услуга",
         base_price=Decimal("100"),
-        pricing_unit=PricingUnit.PER_SQM,
-        included_works=["мытьё полов", "протирка пыли"],
-        included_components=["моющие средства"],
+        pricing_unit="sqm",
+        included_works=["этап 1", "этап 2"],
+        included_components=["материалы"],
         min_volume=Decimal("20"),
         max_volume=Decimal("200"),
     )
@@ -73,15 +72,35 @@ def test_comparability_not_comparable_on_volume_bounds() -> None:
 
 
 def test_comparability_not_comparable_on_incompatible_units() -> None:
-    offer = _complete_offer().model_copy(update={"pricing_unit": PricingUnit.PER_HOUR})
+    offer = _complete_offer().model_copy(update={"pricing_unit": "hour"})
     assessment = check_comparability(offer, _base_scenario())
 
     assert assessment.status == ComparabilityStatus.NOT_COMPARABLE
     assert any("Несовместимые единицы расчёта" in d for d in assessment.differences)
 
 
+def test_comparability_partially_comparable_on_convertible_units() -> None:
+    scenario = OrderScenario(
+        id="scen-time",
+        title="Консультация 2 часа",
+        volume=Decimal("2"),
+        pricing_unit="hour",
+    )
+    offer = ServiceOffer(
+        id="offer-min",
+        provider_name="Специалист",
+        service_title="Консультация",
+        base_price=Decimal("50"),
+        pricing_unit="minute",
+    )
+    assessment = check_comparability(offer, scenario)
+
+    assert assessment.status == ComparabilityStatus.PARTIALLY_COMPARABLE
+    assert any("пересчёт единиц" in d for d in assessment.differences)
+
+
 def test_comparability_partially_comparable_for_fixed_price() -> None:
-    offer = _complete_offer().model_copy(update={"pricing_unit": PricingUnit.FIXED})
+    offer = _complete_offer().model_copy(update={"pricing_unit": "fixed"})
     assessment = check_comparability(offer, _base_scenario())
 
     assert assessment.status == ComparabilityStatus.PARTIALLY_COMPARABLE
@@ -90,7 +109,7 @@ def test_comparability_partially_comparable_for_fixed_price() -> None:
 
 def test_comparability_not_comparable_when_required_work_excluded() -> None:
     offer = _complete_offer().model_copy(
-        update={"exclusions_or_limits": ["Мытьё полов"]}
+        update={"exclusions_or_limits": ["Этап 1"]}
     )
     assessment = check_comparability(offer, _base_scenario())
 
@@ -98,10 +117,21 @@ def test_comparability_not_comparable_when_required_work_excluded() -> None:
     assert any("ограничениях" in d for d in assessment.differences)
 
 
+def test_comparability_tracks_unmatched_scenario_conditions() -> None:
+    scenario = _base_scenario().model_copy(update={"conditions": ["работа в выходные"]})
+    offer = _complete_offer()
+    evaluation = evaluate_offer(offer, scenario)
+
+    assert evaluation.comparability.status == ComparabilityStatus.PARTIALLY_COMPARABLE
+    assert any("работа в выходные" in d for d in evaluation.comparability.differences)
+    assert evaluation.completeness.completeness == DataCompleteness.PARTIAL
+    assert any("работа в выходные" in m for m in evaluation.completeness.missing_info)
+
+
 def test_comparability_partially_comparable_on_missing_work_and_conditional_surcharge() -> None:
     offer = _complete_offer().model_copy(
         update={
-            "included_works": ["мытьё полов"],
+            "included_works": ["этап 1"],
             "surcharges": [
                 Surcharge(
                     name="Срочность",
@@ -119,7 +149,6 @@ def test_comparability_partially_comparable_on_missing_work_and_conditional_surc
 
 
 def test_evaluate_offer_separates_axes() -> None:
-    # Нет цены (insufficient), но при этом объём не подходит (not_comparable)
     offer = _complete_offer().model_copy(
         update={"base_price": None, "max_volume": Decimal("30")}
     )

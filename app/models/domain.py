@@ -1,17 +1,10 @@
 from decimal import Decimal
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-
-class PricingUnit(str, Enum):
-    """Единица расчёта цены и объёма услуги."""
-
-    FIXED = "fixed"
-    PER_HOUR = "per_hour"
-    PER_UNIT = "per_unit"
-    PER_SQM = "per_sqm"
+from app.models.units import FIXED_UNIT, normalize_unit
 
 
 class ComparabilityStatus(str, Enum):
@@ -35,18 +28,23 @@ class Surcharge(BaseModel):
 
     name: str = Field(..., min_length=1, description="Название доплаты")
     amount: Decimal = Field(..., ge=0, description="Размер доплаты")
-    unit: PricingUnit = Field(
-        default=PricingUnit.FIXED,
-        description="Единица расчёта доплаты",
+    unit: str = Field(
+        default=FIXED_UNIT,
+        description="Единица расчёта доплаты (fixed, hour, sqm, session и т.д.)",
     )
     is_mandatory: bool = Field(
         default=True,
-        description="Является ли доплата обязательной для данного условия",
+        description="Является ли доплата обязательной по умолчанию",
     )
     condition_description: Optional[str] = Field(
         default=None,
         description="Условие, при котором применяется доплата",
     )
+
+    @field_validator("unit")
+    @classmethod
+    def validate_and_normalize_unit(cls, value: str) -> str:
+        return normalize_unit(value)
 
 
 class ServiceOffer(BaseModel):
@@ -60,7 +58,7 @@ class ServiceOffer(BaseModel):
         ge=0,
         description="Базовая цена; None означает, что цена не указана",
     )
-    pricing_unit: Optional[PricingUnit] = Field(
+    pricing_unit: Optional[str] = Field(
         default=None,
         description="Единица расчёта базовой цены; None, если не указана",
     )
@@ -74,7 +72,7 @@ class ServiceOffer(BaseModel):
     )
     exclusions_or_limits: List[str] = Field(
         default_factory=list,
-        description="Ограничения и работы, которые точно не входят",
+        description="Ограничения и работы/условия, которые точно не входят",
     )
     surcharges: List[Surcharge] = Field(
         default_factory=list,
@@ -94,6 +92,13 @@ class ServiceOffer(BaseModel):
         default_factory=list,
         description="Условия выполнения услуги",
     )
+
+    @field_validator("pricing_unit")
+    @classmethod
+    def validate_and_normalize_unit(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return normalize_unit(value)
 
     @model_validator(mode="after")
     def validate_volume_bounds(self) -> "ServiceOffer":
@@ -120,8 +125,8 @@ class OrderScenario(BaseModel):
         gt=0,
         description="Требуемый объём работ",
     )
-    pricing_unit: PricingUnit = Field(
-        default=PricingUnit.FIXED,
+    pricing_unit: str = Field(
+        default=FIXED_UNIT,
         description="Единица измерения объёма в сценарии",
     )
     required_components: List[str] = Field(
@@ -132,6 +137,27 @@ class OrderScenario(BaseModel):
         default_factory=list,
         description="Дополнительные условия заказа",
     )
+    unit_conversions: Dict[str, Decimal] = Field(
+        default_factory=dict,
+        description="Коэффициенты перевода объёма сценария в единицы предложений",
+    )
+
+    @field_validator("pricing_unit")
+    @classmethod
+    def validate_and_normalize_unit(cls, value: str) -> str:
+        return normalize_unit(value)
+
+    @field_validator("unit_conversions")
+    @classmethod
+    def validate_unit_conversions(
+        cls, value: Dict[str, Decimal]
+    ) -> Dict[str, Decimal]:
+        normalized: Dict[str, Decimal] = {}
+        for unit_name, factor in value.items():
+            if factor <= 0:
+                raise ValueError("Коэффициент перевода единиц должен быть больше 0")
+            normalized[normalize_unit(unit_name)] = factor
+        return normalized
 
 
 class PriceLineItem(BaseModel):
