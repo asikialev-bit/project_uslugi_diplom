@@ -20,4 +20,4 @@
 | `app/calculator/` | Расчёт итоговой стоимости с переводом единиц и активацией условных доплат | Реализован `pricing.py` (`calculate_comparison`, `compare_offers`) |
 | `app/storage/` | Изолированный слой работы с БД (SQLite) | Реализован `sqlite_repo.py` (`SQLiteRepository`, `resolve_db_path`) |
 | `app/llm/` | Извлечение структурированных данных из текстов через LLM | Реализованы `client.py` (`LLMClient`, `OpenAICompatibleLLMClient`) и `extractor.py` (`OfferExtractor`) |
-| `tests/` | Автоматические тесты (`pytest`) | Реализованы `test_health.py`, `test_models.py`, `test_rules.py`, `test_calculator.py`, `test_storage_and_api.py`, `test_llm_extractor.py` |
+| `tests/` | Автоматические тесты (`pytest`) | Реализованы `test_health.py`, `test_models.py`, `test_rules.py`, `test_calculator.py`, `test_storage_and_api.py`, `test_llm_extractor.py`, `test_e2e_demo.py` |
