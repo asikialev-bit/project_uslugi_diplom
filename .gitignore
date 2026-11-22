@@ -8,3 +8,5 @@ __pycache__/
 *.sqlite3
 .DS_Store
 Ниже — готовый контекст для передачи другому ИИ.docx
+.agent/
+.agents/

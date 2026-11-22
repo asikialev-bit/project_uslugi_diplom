@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>СметАнализ — Узнайте реальную цену подрядчика до оплаты</title>
+    <meta
+      name="description"
+      content="Сравнивайте предложения исполнителей по реальной итоговой смете с учётом состава работ, условий и скрытых доплат."
+    />
+    <meta property="og:title" content="СметАнализ — Реальная цена подрядчика до оплаты" />
+    <meta property="og:description" content="Приводит коммерческие предложения разных исполнителей к вашему заказу и показывает честную итоговую стоимость." />
+    <meta name="theme-color" content="#FBFBF9" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Перейти к содержанию</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3v18" />
+              <path d="M5 7h14" />
+              <path d="M3 14l2-7 2 7a2 2 0 0 1-4 0Z" />
+              <path d="M17 14l2-7 2 7a2 2 0 0 1-4 0Z" />
+            </svg>
+          </span>
+          <span>СметАнализ</span>
+        </a>
+
+        <nav class="nav-pill-group" aria-label="Разделы сайта">
+          <a class="nav-pill is-active" href="/" aria-current="page">Обзор</a>
+          <a class="nav-pill" href="/workspace">Сравнение услуг</a>
+        </nav>
+
+        <div class="header-actions">
+          <button
+            type="button"
+            id="theme-toggle"
+            class="btn btn-secondary btn-icon"
+            aria-label="Переключить тему"
+          >
+            <svg data-icon-sun width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="display: none" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+            <svg data-icon-moon width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+            </svg>
+          </button>
+          <a class="btn btn-primary" href="/workspace">Сравнить предложения</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero-stage" id="hero-stage">
+        <div class="container hero-grid">
+          <div class="reveal-hero">
+            <div class="heading-group">
+              <h1 class="hero-title">Узнайте реальную цену подрядчика до оплаты</h1>
+              <p class="hero-lead">
+                Низкая ставка в рекламе почти всегда скрывает доплаты за выезд, срочность или урезанный состав работ. Соберите предложения под один заказ и сразу увидьте итоговую сумму без сюрпризов.
+              </p>
+            </div>
+
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="/workspace">Проверить свои сметы</a>
+              <a class="btn btn-secondary" href="#how">Посмотреть, как это работает</a>
+            </div>
+
+            <p class="hero-note">
+              Подходит для любых услуг бизнеса: маркетинг, ремонт, логистика, клининг, IT и подрядчики.
+            </p>
+          </div>
+
+          <div class="reality-stage reveal-hero reveal-hero--delay" aria-label="Сравнение витрины и реальной стоимости">
+            <div class="reality-bar">
+              <div class="mode-switch" role="group" aria-label="Режим отображения цен">
+                <button type="button" class="mode-btn" data-reality-mode="showcase" aria-pressed="false">
+                  На витрине
+                </button>
+                <button type="button" class="mode-btn" data-reality-mode="reality" aria-pressed="true">
+                  В реальности
+                </button>
+              </div>
+              <span id="reality-caption" class="reality-caption"></span>
+            </div>
+
+            <div id="hero-fan-deck" class="fan-deck"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="curtain-sheet" id="how">
+        <div class="container editorial-split">
+          <div class="editorial-sticky reveal-on-scroll">
+            <div class="heading-group">
+              <h2 class="section-title">Почему самый дешёвый подрядчик часто обходится дороже всех</h2>
+              <p class="section-desc">
+                Прайс на сайте показывает только входной билет. Сервис пересчитывает разные предложения под ваш реальный заказ, вскрывает скрытые доплаты и предупреждает, если исполнитель что-то не договорил.
+              </p>
+            </div>
+          </div>
+
+          <div class="cases-stream">
+            <article class="case-slab reveal-on-scroll">
+              <div class="case-slab-head">
+                <h3>Скрытые доплаты всплывают до начала работ</h3>
+                <p>
+                  Срочный запуск, выезд на объект или дополнительные материалы часто прячут в сносках. Если эти условия нужны вашему бизнесу, сервис сам добавит их в итоговую смету.
+                </p>
+              </div>
+              <div class="case-slab-artifact">
+                <span>Условие заказа: нужно срочно</span>
+                <strong>+ 1 500 ₽ к цене из рекламы</strong>
+              </div>
+            </article>
+
+            <article class="case-slab reveal-on-scroll">
+              <div class="case-slab-head">
+                <h3>Сравнивайте яблоки с яблоками</h3>
+                <p>
+                  Один исполнитель считает за час, второй — за месяц, третий — фикс за проект. Вы не тратите время на калькулятор: сервис приводит разные форматы оплаты к вашему объёму.
+                </p>
+              </div>
+              <div class="case-slab-artifact">
+                <span>2 месяца против ставки за занятие</span>
+                <strong>Единый итог: 16 000 ₽</strong>
+              </div>
+            </article>
+
+            <article class="case-slab reveal-on-scroll">
+              <div class="case-slab-head">
+                <h3>Готовый список вопросов до подписания договора</h3>
+                <p>
+                  Когда подрядчик не назвал цену этапа, умолчал о материалах или исключил важную работу, вы сразу видите, чего не хватает и что нужно уточнить до предоплаты.
+                </p>
+              </div>
+              <div class="case-slab-artifact">
+                <span>Итоговая проверка рисков</span>
+                <strong>2 пункта на уточнение у подрядчика</strong>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing-section">
+        <div class="container closing-inner reveal-on-scroll">
+          <div class="heading-group">
+            <h2 class="section-title">Не переплачивайте за мелкий шрифт</h2>
+            <p class="section-desc">
+              Вставьте тексты коммерческих предложений или заполните пару полей — через минуту получите понятный рейтинг исполнителей по реальной стоимости.
+            </p>
+          </div>
+          <a class="btn btn-primary" href="/workspace">Сравнить предложения</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div class="footer-brand">
+          <strong>СметАнализ</strong>
+          <span>Сервис честного сопоставления услуг для малого бизнеса</span>
+        </div>
+        <div class="footer-links">
+          <a href="/">Обзор</a>
+          <a href="/workspace">Сравнение услуг</a>
+          <a href="/docs">API для разработчиков</a>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module">
+      import { initTheme } from "/static/theme.js";
+      import { initCurtainAndReveals, initRealitySwitch } from "/static/motion.js";
+      initTheme();
+      initRealitySwitch();
+      initCurtainAndReveals();
+    </script>
+  </body>
+</html>

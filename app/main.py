@@ -1,6 +1,9 @@
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.calculator import compare_offers
@@ -17,6 +20,10 @@ app = FastAPI(
     title="Сервис интеллектуального сопоставления услуг",
     version="0.1.0",
 )
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
 class CompareRequest(BaseModel):
@@ -46,6 +53,18 @@ def get_offer_extractor() -> OfferExtractor:
     """Создаёт экстрактор предложений на основе переменных окружения."""
     client = OpenAICompatibleLLMClient.from_env()
     return OfferExtractor(client)
+
+
+@app.get("/", include_in_schema=False)
+def read_landing_page() -> FileResponse:
+    """Возвращает обзорную страницу сервиса."""
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/workspace", include_in_schema=False)
+def read_workspace_page() -> FileResponse:
+    """Возвращает страницу рабочего инструмента сравнения."""
+    return FileResponse(FRONTEND_DIR / "workspace.html")
 
 
 @app.get("/health")
