@@ -91,6 +91,10 @@ export function getMe() {
   return requestJson("/me");
 }
 
+export function getAccountHistory() {
+  return requestJson("/me/history");
+}
+
 export function getCompanyProfile() {
   return requestJson("/me/company");
 }

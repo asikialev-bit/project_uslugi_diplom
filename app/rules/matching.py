@@ -1,6 +1,7 @@
 from decimal import Decimal
 from fractions import Fraction
-from typing import Iterable, List, Optional, Set
+import re
+from typing import Dict, Iterable, List, Optional, Set
 
 from pydantic import BaseModel
 
@@ -58,17 +59,87 @@ def normalize_items(items: List[str]) -> Set[str]:
     return {norm for item in items if (norm := normalize_text(item))}
 
 
+_STOP_WORDS = {"и", "в", "во", "на", "с", "со", "по", "для", "от", "до", "за", "к", "у", "из", "или"}
+
+_RU_ENDINGS = (
+    "иями", "ями", "ами", "ого", "его", "ому", "ему", "ими", "ыми",
+    "ость", "ение", "ание", "ться", "тся",
+    "ать", "ять", "ить", "еть", "уть", "ыть",
+    "ой", "ей", "ий", "ый", "ая", "яя", "ое", "ее", "ие", "ые",
+    "ов", "ев", "ам", "ям", "ах", "ях", "ом", "ем", "ой", "ей",
+    "ую", "юю", "а", "я", "о", "е", "и", "ы", "у", "ю", "ь",
+)
+
+_SYNONYM_GROUPS: Dict[str, tuple] = {
+    "syn:wash": ("мытьё", "мытье", "мойка", "мыть", "помыть", "влажная", "отмыть"),
+    "syn:clean": ("уборка", "чистка", "клининг", "очистка", "почистить", "убрать"),
+    "syn:kitchen": ("кухня", "кухонь", "кухонный", "кухонная", "кухонное"),
+    "syn:window": ("окно", "окна", "окон", "окошко", "остекление"),
+    "syn:bath": ("санузел", "ванная", "ванна", "туалет", "сантехника"),
+    "syn:assemble": ("сборка", "собрать", "монтаж", "установка", "установить", "поставить"),
+    "syn:setup": ("настройка", "настроить", "конфигурация", "оптимизация"),
+    "syn:pc": ("пк", "компьютер", "комп", "системник", "системный"),
+    "syn:os": ("windows", "виндовс", "виндоус", "ос", "система"),
+    "syn:urgent": ("срочно", "срочный", "экстренно", "быстро", "сегодня"),
+    "syn:materials": ("материалы", "расходники", "химия", "средства", "комплектующие"),
+    "syn:visit": ("выезд", "дом", "дому", "офис"),
+    "syn:cable": ("кабель", "кабель-менеджмент", "провода", "укладка"),
+}
+
+
+def _stem_ru_word(word: str) -> str:
+    """Упрощённый стеммер русских слов: отсекает окончания при длине основы >= 3."""
+    clean = word.lower().replace("ё", "е").strip()
+    if len(clean) <= 3:
+        return clean
+    for ending in _RU_ENDINGS:
+        if clean.endswith(ending) and len(clean) - len(ending) >= 3:
+            return clean[: -len(ending)]
+    return clean
+
+
+def _build_synonym_lookup() -> Dict[str, str]:
+    lookup: Dict[str, str] = {}
+    for group_id, words in _SYNONYM_GROUPS.items():
+        for raw_word in words:
+            norm = raw_word.lower().replace("ё", "е")
+            lookup[norm] = group_id
+            lookup[_stem_ru_word(norm)] = group_id
+    return lookup
+
+
+_SYNONYM_LOOKUP = _build_synonym_lookup()
+
+
+def _canonical_tokens(text: str) -> Set[str]:
+    words = re.findall(r"[a-zа-яё0-9]+", text.lower().replace("ё", "е"))
+    tokens: Set[str] = set()
+    for word in words:
+        if (len(word) < 2 and not word.isdigit()) or word in _STOP_WORDS:
+            continue
+        stem = _stem_ru_word(word)
+        tokens.add(_SYNONYM_LOOKUP.get(word) or _SYNONYM_LOOKUP.get(stem) or stem)
+    return tokens
+
+
 def text_matches_any(needle: str, haystack: Iterable[str]) -> bool:
-    """Проверяет совпадение по равенству или вхождению подстроки."""
+    """Проверяет совпадение по подстроке, основам слов или словарю синонимов."""
     norm_needle = normalize_text(needle)
     if not norm_needle:
         return False
+    needle_tokens = _canonical_tokens(norm_needle)
     for raw in haystack:
         norm_candidate = normalize_text(raw)
         if not norm_candidate:
             continue
         if norm_needle in norm_candidate or norm_candidate in norm_needle:
             return True
+        if needle_tokens:
+            cand_tokens = _canonical_tokens(norm_candidate)
+            if cand_tokens:
+                overlap = len(needle_tokens & cand_tokens)
+                if overlap / len(needle_tokens) >= 0.75:
+                    return True
     return False
 
 

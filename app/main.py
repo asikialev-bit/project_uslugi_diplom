@@ -16,6 +16,7 @@ from app.auth import (
     get_email_sender_from_env,
 )
 from app.calculator import build_comparison_report, compare_offers
+from app.discovery import DiscoveryService, SearchProviderError
 from app.llm import (
     LLMConfigurationError,
     LLMProviderError,
@@ -24,11 +25,15 @@ from app.llm import (
     OpenAICompatibleLLMClient,
     ScenarioDetailsExtractor,
     ScenarioExtractionError,
+    UnitConversionEstimator,
 )
 from app.models import (
+    ComparabilityStatus,
     ComparisonReportResponse,
     ComparisonResult,
+    DataCompleteness,
     OrderScenario,
+    ProviderType,
     ScenarioDetailsDraft,
     ServiceOffer,
 )
@@ -160,6 +165,16 @@ def get_scenario_extractor() -> ScenarioDetailsExtractor:
     return ScenarioDetailsExtractor(client)
 
 
+def get_discovery_service() -> DiscoveryService:
+    """Создаёт сервис поиска конкурентов (работает и без LLM для лёгкого discovery)."""
+    extractor: Optional[OfferExtractor] = None
+    try:
+        extractor = get_offer_extractor()
+    except LLMConfigurationError:
+        extractor = None
+    return DiscoveryService.from_env(extractor=extractor)
+
+
 @app.get("/", include_in_schema=False)
 def read_landing_page() -> FileResponse:
     """Возвращает обзорную страницу сервиса."""
@@ -232,7 +247,17 @@ def read_current_user(
         "user": user,
         "has_company_profile": company_offer is not None,
         "credits_balance": repo.get_credit_balance(user["id"]),
+        "dev_topup_enabled": os.getenv("APP_ENV", "development").lower() != "production",
     }
+
+
+@app.get("/me/history")
+def read_user_history(
+    user: Dict[str, str] = Depends(require_user),
+    repo: SQLiteRepository = Depends(get_repository),
+) -> Dict[str, object]:
+    """Возвращает последние 5 проверок (сценариев) текущего пользователя."""
+    return {"items": repo.list_recent_scenarios_for_user(user["id"], limit=5)}
 
 
 @app.get("/credits")
@@ -338,10 +363,11 @@ def extract_offer_from_text(
 @app.post("/scenarios", response_model=OrderScenario)
 def create_scenario(
     scenario: OrderScenario,
+    user: Optional[Dict[str, str]] = Depends(get_optional_user),
     repo: SQLiteRepository = Depends(get_repository),
 ) -> OrderScenario:
     """Сохраняет или обновляет сценарий заказа."""
-    return repo.save_scenario(scenario)
+    return repo.save_scenario(scenario, user_id=user["id"] if user else None)
 
 
 @app.post("/scenarios/extract-details", response_model=ScenarioDetailsDraft)
@@ -423,24 +449,110 @@ def compare_saved_scenario(
     return compare_offers(offers, scenario, own_offer_id=own_id)
 
 
+def _append_discovery_placeholders(
+    report: ComparisonReportResponse,
+    scenario: OrderScenario,
+    existing_offers: List[ServiceOffer],
+    discovery: DiscoveryService,
+    repo: SQLiteRepository,
+) -> ComparisonReportResponse:
+    """Добавляет заблокированные слоты по результатам лёгкого discovery без LLM."""
+    if not discovery.is_live_configured:
+        return report
+    try:
+        candidates = discovery.discover_candidates(scenario, limit=15, repo=repo)
+    except SearchProviderError:
+        return report
+    known_urls = {o.source_url for o in existing_offers if o.source_url}
+    new_candidates = [c for c in candidates if not c.url or c.url not in known_urls]
+    if not new_candidates:
+        return report
+
+    extra_results = list(report.results)
+    start_idx = report.locked_competitors_count + 1
+    show_first_preview = report.competitors_count == 0
+    locked_added = 0
+    for offset, cand in enumerate(new_candidates):
+        if show_first_preview and offset == 0:
+            extra_results.append(
+                ComparisonResult(
+                    offer_id="preview-disc-1",
+                    provider_name=cand.title[:80],
+                    is_own_company=False,
+                    is_locked=False,
+                    provider_type=cand.provider_type,
+                    status=ComparabilityStatus.PARTIALLY_COMPARABLE,
+                    completeness=DataCompleteness.PARTIAL,
+                    similarity_score=0,
+                    differences=[
+                        cand.snippet[:260]
+                        if cand.snippet
+                        else "Найден в поиске; полный разбор цены и доплат откроется после оплаты."
+                    ],
+                    missing_info=["Детальная смета и состав работ загружаются при разблокировке отчёта"],
+                )
+            )
+            continue
+
+        slot_num = start_idx + locked_added
+        locked_added += 1
+        extra_results.append(
+            ComparisonResult(
+                offer_id=f"locked-disc-{slot_num}",
+                provider_name=f"Найденный конкурент #{slot_num}",
+                is_own_company=False,
+                is_locked=True,
+                provider_type=ProviderType.UNKNOWN,
+                status=ComparabilityStatus.PARTIALLY_COMPARABLE,
+                completeness=DataCompleteness.INSUFFICIENT,
+                similarity_score=0,
+            )
+        )
+    return report.model_copy(
+        update={
+            "competitors_count": report.competitors_count + len(new_candidates),
+            "locked_competitors_count": report.locked_competitors_count + locked_added,
+            "results": extra_results,
+        }
+    )
+
+
+def _get_offers_for_report(
+    repo: SQLiteRepository,
+    scenario_id: str,
+    discovery: DiscoveryService,
+) -> List[ServiceOffer]:
+    scoped = repo.list_offers_for_scenario(scenario_id)
+    if discovery.is_live_configured:
+        return scoped
+    return scoped or repo.list_offers()
+
+
 @app.get("/scenarios/{scenario_id}/report", response_model=ComparisonReportResponse)
 def get_scenario_report(
     scenario_id: str,
     user: Optional[Dict[str, str]] = Depends(get_optional_user),
     repo: SQLiteRepository = Depends(get_repository),
+    discovery: DiscoveryService = Depends(get_discovery_service),
 ) -> ComparisonReportResponse:
     """Возвращает freemium-превью или оплаченный полный отчёт по сценарию."""
     scenario = repo.get_scenario(scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Сценарий не найден")
-    offers, own_id = _merge_own_company(repo.list_offers(), user, repo)
+    stored_offers = _get_offers_for_report(repo, scenario_id, discovery)
+    offers, own_id = _merge_own_company(stored_offers, user, repo)
     is_unlocked = bool(user and repo.is_scenario_unlocked(user["id"], scenario_id))
-    return build_comparison_report(
+    report = build_comparison_report(
         offers,
         scenario,
         own_offer_id=own_id,
         is_unlocked=is_unlocked,
     )
+    if not is_unlocked:
+        report = _append_discovery_placeholders(
+            report, scenario, stored_offers, discovery, repo
+        )
+    return report
 
 
 @app.post("/scenarios/{scenario_id}/unlock", response_model=ComparisonReportResponse)
@@ -448,13 +560,26 @@ def unlock_scenario_report(
     scenario_id: str,
     user: Dict[str, str] = Depends(require_user),
     repo: SQLiteRepository = Depends(get_repository),
+    discovery: DiscoveryService = Depends(get_discovery_service),
 ) -> ComparisonReportResponse:
-    """Списывает 1 кредит (идемпотентно) и открывает полный отчёт со сводкой и позиционированием."""
+    """Списывает 1 кредит (идемпотентно), при необходимости собирает конкурентов и открывает отчёт."""
     scenario = repo.get_scenario(scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Сценарий не найден")
-    repo.unlock_scenario_with_credit(user["id"], scenario_id, cost=1)
-    offers, own_id = _merge_own_company(repo.list_offers(), user, repo)
+    charged, _ = repo.unlock_scenario_with_credit(user["id"], scenario_id, cost=1)
+    if charged and discovery.is_live_configured:
+        discovery.collect_offers_for_scenario(scenario, repo=repo)
+    stored_offers = _get_offers_for_report(repo, scenario_id, discovery)
+    offers, own_id = _merge_own_company(stored_offers, user, repo)
+    target_units = [o.pricing_unit for o in offers if o.pricing_unit]
+    llm_client = discovery.extractor.client if discovery.extractor is not None else None
+    estimated_conversions = UnitConversionEstimator(llm_client).estimate_conversions(
+        scenario, target_units
+    )
+    if estimated_conversions:
+        merged_conversions = {**estimated_conversions, **scenario.unit_conversions}
+        scenario = scenario.model_copy(update={"unit_conversions": merged_conversions})
+        repo.save_scenario(scenario)
     return build_comparison_report(
         offers,
         scenario,
@@ -481,6 +606,11 @@ def handle_auth_error(_, exc: AuthError) -> JSONResponse:
 @app.exception_handler(InsufficientCreditsError)
 def handle_insufficient_credits(_, exc: InsufficientCreditsError) -> JSONResponse:
     return JSONResponse(status_code=402, content={"detail": str(exc)})
+
+
+@app.exception_handler(SearchProviderError)
+def handle_search_provider_error(_, exc: SearchProviderError) -> JSONResponse:
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
 @app.exception_handler(EmailDeliveryError)

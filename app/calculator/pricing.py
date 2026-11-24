@@ -12,6 +12,7 @@ from app.models import (
     OrderScenario,
     OwnPositioning,
     PriceLineItem,
+    PriceRecommendation,
     ProviderType,
     SegmentSummary,
     ServiceOffer,
@@ -158,6 +159,46 @@ def calculate_comparison(
                 sum((item.amount for item in price_breakdown), Decimal("0"))
             )
 
+    adjusted_price: Optional[Decimal] = None
+    price_range_min: Optional[Decimal] = None
+    price_range_max: Optional[Decimal] = None
+    adjustment_note: Optional[str] = None
+    if total_estimated_price is not None:
+        scope_score = evaluation.similarity.breakdown.scope_coverage.score
+        transparency_score = evaluation.similarity.breakdown.price_transparency.score
+        has_scope_reqs = bool(scenario.required_works or scenario.required_components)
+
+        scope_uplift = Decimal("0")
+        notes: List[str] = []
+        if has_scope_reqs and scope_score < 100:
+            missing_ratio = Decimal(100 - scope_score) / Decimal(100)
+            scope_uplift = (missing_ratio * Decimal("0.5")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            notes.append(
+                f"поправка +{int(scope_uplift * 100)}% за неполное покрытие состава ({scope_score}%)"
+            )
+
+        adjusted_price = _clean_money(total_estimated_price * (Decimal("1") + scope_uplift))
+
+        uncertainty_pct = Decimal("0.05")
+        if transparency_score < 85:
+            uncertainty_pct = min(
+                Decimal("0.25"),
+                (Decimal(100 - transparency_score) * Decimal("0.003")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                ),
+            )
+            notes.append(
+                f"погрешность ±{int(uncertainty_pct * 100)}% из-за неполной прозрачности ({transparency_score}%)"
+            )
+
+        base_for_band = adjusted_price or total_estimated_price
+        price_range_min = _clean_money(base_for_band * (Decimal("1") - uncertainty_pct))
+        price_range_max = _clean_money(base_for_band * (Decimal("1") + uncertainty_pct))
+        if notes:
+            adjustment_note = "; ".join(notes).capitalize() + "."
+
     return ComparisonResult(
         offer_id=offer.id,
         provider_name=offer.provider_name,
@@ -168,6 +209,10 @@ def calculate_comparison(
         similarity_score=evaluation.similarity.score,
         similarity_breakdown=evaluation.similarity.breakdown,
         total_estimated_price=total_estimated_price,
+        adjusted_price=adjusted_price,
+        price_range_min=price_range_min,
+        price_range_max=price_range_max,
+        adjustment_note=adjustment_note,
         price_breakdown=price_breakdown,
         differences=differences,
         missing_info=missing_info,
@@ -203,6 +248,53 @@ def compare_offers(
         for offer in offers
     ]
     return sorted(results, key=_sort_key)
+
+
+def _filter_promo_outliers(
+    priced_comparable: List[ComparisonResult],
+) -> Tuple[List[ComparisonResult], List[ComparisonResult]]:
+    """Отделяет рекламные аномально низкие выбросы (в 5+ раз ниже медианы остальной выборки)."""
+    if len(priced_comparable) < 3:
+        return priced_comparable, []
+    sorted_by_price = sorted(
+        priced_comparable,
+        key=lambda r: r.total_estimated_price or Decimal("0"),
+    )
+    prices = [
+        r.total_estimated_price
+        for r in sorted_by_price
+        if r.total_estimated_price is not None
+    ]
+    median_all = _compute_median(prices)
+    if median_all is None or median_all <= 0:
+        return priced_comparable, []
+
+    threshold = median_all / Decimal("5")
+    valid: List[ComparisonResult] = []
+    outliers: List[ComparisonResult] = []
+    for item in priced_comparable:
+        p = item.total_estimated_price
+        if p is not None and p < threshold:
+            outliers.append(
+                item.model_copy(
+                    update={
+                        "total_estimated_price": None,
+                        "adjusted_price": None,
+                        "price_range_min": None,
+                        "price_range_max": None,
+                        "missing_info": [
+                            *item.missing_info,
+                            f"Аномально низкая рекламная ставка ({p} ₽ при медиане {median_all} ₽) исключена из расчёта",
+                        ],
+                    }
+                )
+            )
+        else:
+            valid.append(item)
+
+    if not valid:
+        return priced_comparable, []
+    return valid, outliers
 
 
 def _compute_median(sorted_prices: List[Decimal]) -> Optional[Decimal]:
@@ -395,6 +487,74 @@ def _build_own_positioning(
     )
 
 
+def _build_price_recommendation(
+    priced_comparable: List[ComparisonResult],
+    own_result: Optional[ComparisonResult],
+) -> PriceRecommendation:
+    """Формирует ценовую рекомендацию с учётом сходства и приведённых цен."""
+    count = len(priced_comparable)
+    if count == 0:
+        return PriceRecommendation(
+            confidence="insufficient",
+            based_on_count=0,
+            strategy_text=(
+                "Недостаточно открытых цен у сопоставимых конкурентов для расчёта "
+                "ценового коридора. Уточните детали услуги или проверьте компании без публичной цены ниже."
+            ),
+        )
+
+    weighted_sum = Decimal("0")
+    total_weight = Decimal("0")
+    adjusted_values: List[Decimal] = []
+    for item in priced_comparable:
+        price_val = item.adjusted_price or item.total_estimated_price
+        if price_val is None:
+            continue
+        adjusted_values.append(price_val)
+        weight = Decimal(max(10, item.similarity_score))
+        weighted_sum += price_val * weight
+        total_weight += weight
+
+    sorted_adj = sorted(adjusted_values)
+    rec_optimal = _clean_money(weighted_sum / total_weight) if total_weight > 0 else _compute_median(sorted_adj)
+    rec_min = _clean_money((rec_optimal or Decimal("0")) * Decimal("0.85"))
+    rec_max = _clean_money((rec_optimal or Decimal("0")) * Decimal("1.15"))
+
+    if own_result is not None and own_result.similarity_breakdown is not None:
+        own_scope = own_result.similarity_breakdown.scope_coverage.score
+        avg_scope = sum(
+            r.similarity_breakdown.scope_coverage.score
+            for r in priced_comparable
+            if r.similarity_breakdown is not None
+        ) / max(1, count)
+        if own_scope > avg_scope + 10 and rec_optimal is not None:
+            rec_optimal = _clean_money(rec_optimal * Decimal("1.08"))
+            rec_max = _clean_money(rec_max * Decimal("1.1"))
+
+    confidence = "high" if count >= 3 else ("medium" if count == 2 else "low")
+    strategy = (
+        f"Рекомендуемый ориентир цены: {rec_optimal} ₽ (коридор {rec_min}–{rec_max} ₽) "
+        f"на основе {count} сопоставимых предложений с учётом состава и доплат."
+    )
+    if own_result is not None and own_result.total_estimated_price is not None and rec_min and rec_max:
+        own_p = own_result.total_estimated_price
+        if own_p < rec_min:
+            strategy += f" Ваша текущая цена ({own_p} ₽) ниже коридора — есть запас повысить чек."
+        elif own_p > rec_max:
+            strategy += f" Ваша текущая цена ({own_p} ₽) выше коридора — важно обосновать её расширенным составом или сервисом."
+        else:
+            strategy += f" Ваша текущая цена ({own_p} ₽) находится в конкурентном коридоре."
+
+    return PriceRecommendation(
+        confidence=confidence,
+        recommended_min=rec_min,
+        recommended_optimal=rec_optimal,
+        recommended_max=rec_max,
+        based_on_count=count,
+        strategy_text=strategy,
+    )
+
+
 def build_comparison_report(
     offers: List[ServiceOffer],
     scenario: OrderScenario,
@@ -407,10 +567,17 @@ def build_comparison_report(
     competitors = [r for r in all_results if not r.is_own_company]
 
     if is_unlocked:
-        priced_comparable, min_p, median_p, max_p = _compute_price_stats(competitors)
+        raw_priced_comparable, _, _, _ = _compute_price_stats(competitors)
+        priced_comparable, promo_outliers = _filter_promo_outliers(raw_priced_comparable)
+        outlier_ids = {o.offer_id for o in promo_outliers}
+        clean_competitors = [
+            o for o in competitors if o.offer_id not in outlier_ids
+        ] + promo_outliers
+
+        _, min_p, median_p, max_p = _compute_price_stats(priced_comparable)
         segments: Dict[str, SegmentSummary] = {}
         for ptype in (ProviderType.COMPANY, ProviderType.PRIVATE):
-            seg_all = [r for r in competitors if r.provider_type == ptype]
+            seg_all = [r for r in clean_competitors if r.provider_type == ptype]
             if not seg_all:
                 continue
             seg_priced, s_min, s_med, s_max = _compute_price_stats(seg_all)
@@ -424,7 +591,7 @@ def build_comparison_report(
             )
 
         market_summary = MarketSummary(
-            total_offers_found=len(competitors),
+            total_offers_found=len(clean_competitors),
             comparable_offers_count=len(priced_comparable),
             min_price=min_p,
             median_price=median_p,
@@ -434,15 +601,34 @@ def build_comparison_report(
         own_positioning = _build_own_positioning(
             own_result, priced_comparable, median_p, segments
         )
+        price_recommendation = _build_price_recommendation(
+            priced_comparable, own_result
+        )
+        unpriced = (
+            [r for r in clean_competitors if r.total_estimated_price is None]
+            if priced_comparable
+            else []
+        )
+        main_results = (
+            [
+                r
+                for r in ([own_result] if own_result else []) + clean_competitors
+                if r.is_own_company or r.total_estimated_price is not None
+            ]
+            if unpriced
+            else ([own_result] if own_result else []) + clean_competitors
+        )
         return ComparisonReportResponse(
             scenario_id=scenario.id,
             is_unlocked=True,
-            competitors_count=len(competitors),
+            competitors_count=len(clean_competitors),
             locked_competitors_count=0,
             own_result=own_result,
             market_summary=market_summary,
             own_positioning=own_positioning,
-            results=all_results,
+            price_recommendation=price_recommendation,
+            results=main_results,
+            unpriced_results=unpriced,
         )
 
     # Freemium-режим: свой аудит открыт, максимум 1 конкурент открыт как пример,

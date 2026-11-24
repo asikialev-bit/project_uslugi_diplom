@@ -190,3 +190,12 @@ def test_substring_matching_covers_offer_conditions() -> None:
 
     assert evaluation.comparability.status == ComparabilityStatus.COMPARABLE
     assert evaluation.completeness.completeness == DataCompleteness.COMPLETE
+
+
+def test_stemming_and_synonym_matching() -> None:
+    from app.rules.matching import text_matches_any
+
+    assert text_matches_any("уборка кухни", ["уборкой кухонь"]) is True
+    assert text_matches_any("мытье окон", ["мойка окна и рамы"]) is True
+    assert text_matches_any("сборка компьютера", ["сборка пк"]) is True
+    assert text_matches_any("уборка кухни", ["мужская стрижка"]) is False

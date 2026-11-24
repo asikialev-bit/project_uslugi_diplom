@@ -1,6 +1,8 @@
+import hashlib
+import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -115,14 +117,112 @@ class SQLiteRepository:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scenario_offers (
+                    scenario_id TEXT NOT NULL,
+                    offer_id TEXT NOT NULL,
+                    PRIMARY KEY (scenario_id, offer_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS search_cache (
+                    query_hash TEXT PRIMARY KEY,
+                    query_text TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+                """
+            )
+            cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(offers)").fetchall()
+            }
+            if "updated_at" not in cols:
+                conn.execute("ALTER TABLE offers ADD COLUMN updated_at TEXT")
+            scen_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(scenarios)").fetchall()
+            }
+            if "user_id" not in scen_cols:
+                conn.execute("ALTER TABLE scenarios ADD COLUMN user_id TEXT")
+            if "created_at" not in scen_cols:
+                conn.execute("ALTER TABLE scenarios ADD COLUMN created_at TEXT")
 
     def save_offer(self, offer: ServiceOffer) -> ServiceOffer:
+        now_iso = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO offers (id, payload) VALUES (?, ?)",
-                (offer.id, offer.model_dump_json()),
+                "INSERT OR REPLACE INTO offers (id, payload, updated_at) VALUES (?, ?, ?)",
+                (offer.id, offer.model_dump_json(), now_iso),
             )
         return offer
+
+    def list_fresh_offers_by_url(self, max_age_days: int = 14) -> Dict[str, ServiceOffer]:
+        """Возвращает свежие предложения по source_url с учётом TTL."""
+        cutoff_iso = (
+            datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        ).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload, updated_at FROM offers ORDER BY rowid DESC"
+            ).fetchall()
+        by_url: Dict[str, ServiceOffer] = {}
+        for payload, updated_at in rows:
+            if updated_at is not None and updated_at < cutoff_iso:
+                continue
+            offer = ServiceOffer.model_validate_json(payload)
+            if offer.source_url and offer.source_url not in by_url:
+                by_url[offer.source_url] = offer
+        return by_url
+
+    @staticmethod
+    def _hash_query(query_text: str) -> str:
+        normalized = " ".join(query_text.strip().lower().split())
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def get_cached_search(self, query_text: str) -> Optional[List[Dict[str, Any]]]:
+        """Возвращает закэшированную выдачу поиска, если она ещё не устарела."""
+        q_hash = self._hash_query(query_text)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload, expires_at FROM search_cache WHERE query_hash = ?",
+                (q_hash,),
+            ).fetchone()
+            if not row:
+                return None
+            if row[1] < now_iso:
+                conn.execute(
+                    "DELETE FROM search_cache WHERE query_hash = ?", (q_hash,)
+                )
+                return None
+        return json.loads(row[0])
+
+    def save_cached_search(
+        self,
+        query_text: str,
+        candidates: List[Dict[str, Any]],
+        ttl_hours: int = 24,
+    ) -> None:
+        """Сохраняет результаты поиска в кэш SQLite с TTL."""
+        q_hash = self._hash_query(query_text)
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+        ).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO search_cache (query_hash, query_text, payload, expires_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    q_hash,
+                    query_text,
+                    json.dumps(candidates, ensure_ascii=False),
+                    expires_at,
+                ),
+            )
 
     def list_offers(self) -> List[ServiceOffer]:
         with self._connect() as conn:
@@ -142,13 +242,60 @@ class SQLiteRepository:
             cursor = conn.execute("DELETE FROM offers WHERE id = ?", (offer_id,))
         return cursor.rowcount > 0
 
-    def save_scenario(self, scenario: OrderScenario) -> OrderScenario:
+    def save_scenario(
+        self, scenario: OrderScenario, user_id: Optional[str] = None
+    ) -> OrderScenario:
+        now_iso = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO scenarios (id, payload) VALUES (?, ?)",
-                (scenario.id, scenario.model_dump_json()),
+                """
+                INSERT INTO scenarios (id, payload, user_id, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    payload = excluded.payload,
+                    user_id = COALESCE(excluded.user_id, scenarios.user_id),
+                    created_at = COALESCE(scenarios.created_at, excluded.created_at)
+                """,
+                (scenario.id, scenario.model_dump_json(), user_id, now_iso),
             )
         return scenario
+
+    def list_recent_scenarios_for_user(
+        self, user_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Возвращает последние сценарии пользователя со статусом открытия отчёта."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    s.id,
+                    s.payload,
+                    s.created_at,
+                    CASE WHEN su.scenario_id IS NOT NULL THEN 1 ELSE 0 END AS is_unlocked
+                FROM scenarios s
+                LEFT JOIN scenario_unlocks su
+                    ON su.scenario_id = s.id AND su.user_id = ?
+                WHERE s.user_id = ?
+                ORDER BY s.rowid DESC
+                LIMIT ?
+                """,
+                (user_id, user_id, limit),
+            ).fetchall()
+        items: List[Dict[str, Any]] = []
+        for scen_id, payload, created_at, is_unlocked in rows:
+            scenario = OrderScenario.model_validate_json(payload)
+            items.append(
+                {
+                    "id": scen_id,
+                    "title": scenario.title,
+                    "city": scenario.city,
+                    "is_online": scenario.is_online,
+                    "created_at": created_at,
+                    "is_unlocked": bool(is_unlocked),
+                    "scenario": scenario.model_dump(mode="json"),
+                }
+            )
+        return items
 
     def list_scenarios(self) -> List[OrderScenario]:
         with self._connect() as conn:
@@ -165,8 +312,34 @@ class SQLiteRepository:
 
     def delete_scenario(self, scenario_id: str) -> bool:
         with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM scenario_offers WHERE scenario_id = ?", (scenario_id,)
+            )
             cursor = conn.execute("DELETE FROM scenarios WHERE id = ?", (scenario_id,))
         return cursor.rowcount > 0
+
+    def link_offer_to_scenario(self, scenario_id: str, offer_id: str) -> None:
+        """Привязывает предложение к конкретному сценарию."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO scenario_offers (scenario_id, offer_id) VALUES (?, ?)",
+                (scenario_id, offer_id),
+            )
+
+    def list_offers_for_scenario(self, scenario_id: str) -> List[ServiceOffer]:
+        """Возвращает предложения, привязанные к конкретному сценарию."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT o.payload
+                FROM offers o
+                JOIN scenario_offers so ON so.offer_id = o.id
+                WHERE so.scenario_id = ?
+                ORDER BY o.rowid ASC
+                """,
+                (scenario_id,),
+            ).fetchall()
+        return [ServiceOffer.model_validate_json(row[0]) for row in rows]
 
     def get_or_create_user(self, email: str) -> Dict[str, str]:
         with self._connect() as conn:

@@ -22,6 +22,7 @@
 | `app/calculator/` | Расчёт стоимости, сводки рынка и серверное скрытие freemium | Реализован `pricing.py` (`calculate_comparison`, `compare_offers`, `build_comparison_report` с сегментацией `company`/`private`) |
 | `app/storage/` | Изолированный слой работы с БД (SQLite) | Реализован `sqlite_repo.py` (`SQLiteRepository`: предложения, сценарии, пользователи, OTP-коды, сессии, профили компаний, `credit_ledger`, `scenario_unlocks`) |
 | `app/llm/` | Извлечение структурированных данных из текстов через LLM | Реализованы `client.py` и `extractor.py` (`OfferExtractor`, `ScenarioDetailsExtractor`) |
+| `app/discovery/` | Легальный поиск конкурентов и загрузка открытых прайс-страниц | Реализованы `providers.py` (`TavilySearchProvider`), `fetcher.py` (`PublicPageFetcher` с `robots.txt`) и `service.py` (`DiscoveryService`) |
 | `frontend/` | Веб-интерфейс (обзорная страница и рабочий стол сравнения) | Реализованы `index.html`, `workspace.html` (модальный вход с размытием фона, компактный сценарий, профиль компании, сегментные фильтры), `styles.css`, `theme.js`, `motion.js`, `api.js`, `render.js`, `workspace.js` |
 | `tests/` | Автоматические тесты (`pytest`) | Реализованы `test_health.py`, `test_models.py`, `test_rules.py`, `test_similarity.py`, `test_calculator.py`, `test_storage_and_api.py`, `test_llm_extractor.py`, `test_e2e_demo.py`, `test_frontend.py`, `test_auth_and_company.py`, `test_credits_and_report.py` |
 

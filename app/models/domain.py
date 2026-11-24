@@ -291,6 +291,25 @@ class ComparisonResult(BaseModel):
         ge=0,
         description="Итоговая расчётная стоимость для сценария, если её можно вычислить",
     )
+    adjusted_price: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="Приведённая сопоставимая цена с учётом полноты состава и погрешностей",
+    )
+    price_range_min: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="Нижняя граница вероятной цены с учётом погрешности прайса",
+    )
+    price_range_max: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="Верхняя граница вероятной цены с учётом погрешности прайса",
+    )
+    adjustment_note: Optional[str] = Field(
+        default=None,
+        description="Пояснение поправки цены за неполный состав или неясные условия",
+    )
     price_breakdown: List[PriceLineItem] = Field(
         default_factory=list,
         description="Детализация стоимости по статьям",
@@ -382,6 +401,24 @@ class OwnPositioning(BaseModel):
     summary_text: str = Field(..., min_length=1)
 
 
+class PriceRecommendation(BaseModel):
+    """Рекомендуемый ценовой коридор для услуги пользователя с учётом состава и рынка."""
+
+    confidence: str = Field(
+        ...,
+        description="Уровень достоверности рекомендации: high, medium, low или insufficient",
+    )
+    recommended_min: Optional[Decimal] = Field(default=None, ge=0)
+    recommended_optimal: Optional[Decimal] = Field(default=None, ge=0)
+    recommended_max: Optional[Decimal] = Field(default=None, ge=0)
+    based_on_count: int = Field(
+        default=0,
+        ge=0,
+        description="Сколько сопоставимых предложений с ценой учтено в расчёте",
+    )
+    strategy_text: str = Field(..., min_length=1)
+
+
 class ComparisonReportResponse(BaseModel):
     """Структурированный отчёт по сценарию (freemium-превью или полный платный отчёт)."""
 
@@ -400,9 +437,16 @@ class ComparisonReportResponse(BaseModel):
     own_positioning: Optional[OwnPositioning] = Field(
         default=None, description="Позиционирование компании на рынке (после оплаты)"
     )
+    price_recommendation: Optional[PriceRecommendation] = Field(
+        default=None, description="Рекомендация цены для пользователя (после оплаты)"
+    )
     results: List[ComparisonResult] = Field(
         default_factory=list,
         description="Список результатов (полный или с серверным скрытием до оплаты)",
+    )
+    unpriced_results: List[ComparisonResult] = Field(
+        default_factory=list,
+        description="Предложения без публичной цены («по договорённости»), вынесенные отдельно",
     )
 
 

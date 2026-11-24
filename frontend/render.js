@@ -15,6 +15,29 @@ const PROVIDER_TYPE_LABELS = {
   private: "Частный исполнитель",
 };
 
+const UNIT_RU_LABELS = {
+  sqm: "м²",
+  hour: "ч",
+  minute: "мин",
+  room: "комн.",
+  unit: "шт.",
+  month: "мес.",
+  session: "сеанс",
+  km: "км",
+  meter: "м",
+  kg: "кг",
+  gram: "г",
+  fixed: "заказ",
+};
+
+function formatUnitsInText(text) {
+  let out = String(text ?? "");
+  for (const [eng, ru] of Object.entries(UNIT_RU_LABELS)) {
+    out = out.replace(new RegExp(`\\b${eng}\\b`, "g"), ru);
+  }
+  return out;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -192,6 +215,23 @@ function renderResultCard(item, idx, isWinner) {
       ? `<div class="result-price tabular">${formatMoney(item.total_estimated_price)} ₽</div>`
       : `<div class="result-price result-price--empty">Расчёт невозможен</div>`;
 
+  const adjustedHtml =
+    item.adjusted_price !== null &&
+    item.adjusted_price !== undefined &&
+    (item.adjustment_note || item.adjusted_price !== item.total_estimated_price)
+      ? `
+        <div class="adjusted-price-box tabular">
+          <strong>Приведённая цена: ~${formatMoney(item.adjusted_price)} ₽</strong>
+          ${
+            item.price_range_min !== null && item.price_range_max !== null
+              ? `<span>(коридор ${formatMoney(item.price_range_min)}–${formatMoney(item.price_range_max)} ₽)</span>`
+              : ""
+          }
+          ${item.adjustment_note ? `<div class="field-hint">${escapeHtml(item.adjustment_note)}</div>` : ""}
+        </div>
+      `
+      : "";
+
   const breakdownHtml =
     item.price_breakdown && item.price_breakdown.length
       ? `
@@ -200,7 +240,7 @@ function renderResultCard(item, idx, isWinner) {
           .map(
             (row) => `
           <div class="breakdown-row">
-            <span class="breakdown-row-label">${escapeHtml(row.label)}</span>
+            <span class="breakdown-row-label">${escapeHtml(formatUnitsInText(row.label))}</span>
             <span class="breakdown-row-amount tabular">${formatMoney(row.amount)} ₽</span>
           </div>
         `
@@ -212,7 +252,7 @@ function renderResultCard(item, idx, isWinner) {
 
   const diffContent =
     item.differences && item.differences.length
-      ? `<ul>${item.differences.map((d) => `<li>${escapeHtml(d)}</li>`).join("")}</ul>`
+      ? `<ul>${item.differences.map((d) => `<li>${escapeHtml(formatUnitsInText(d))}</li>`).join("")}</ul>`
       : `<p class="explain-ok">Существенных расхождений со сценарием нет.</p>`;
 
   const hasMissing = item.missing_info && item.missing_info.length > 0;
@@ -238,6 +278,7 @@ function renderResultCard(item, idx, isWinner) {
         </div>
       </div>
       ${breakdownHtml}
+      ${adjustedHtml}
       ${renderSimilarityBreakdown(item.similarity_breakdown)}
       <div class="explain-grid">
         <div class="explain-box">
@@ -319,9 +360,10 @@ export function renderComparisonReport(
 
   let summaryHtml = "";
   let filterHtml = "";
-  if (report.is_unlocked && (report.market_summary || report.own_positioning)) {
+  if (report.is_unlocked && (report.market_summary || report.own_positioning || report.price_recommendation)) {
     const ms = report.market_summary;
     const pos = report.own_positioning;
+    const rec = report.price_recommendation;
     const segEntries =
       ms && ms.segments
         ? Object.entries(ms.segments).filter(([, s]) => s && s.total_offers_found > 0)
@@ -345,6 +387,21 @@ export function renderComparisonReport(
 
     summaryHtml = `
       <div class="report-summary-grid">
+        ${
+          rec
+            ? `
+          <div class="report-summary-card report-summary-card--accent">
+            <h3>Рекомендуемая цена</h3>
+            <p style="margin: 0 0 8px; font-size: 0.875rem;">${escapeHtml(rec.strategy_text)}</p>
+            <div class="report-kpi-row tabular">
+              <div class="report-kpi"><span>Минимум</span><strong>${rec.recommended_min !== null ? `${formatMoney(rec.recommended_min)} ₽` : "—"}</strong></div>
+              <div class="report-kpi"><span>Оптимум</span><strong>${rec.recommended_optimal !== null ? `${formatMoney(rec.recommended_optimal)} ₽` : "—"}</strong></div>
+              <div class="report-kpi"><span>Максимум</span><strong>${rec.recommended_max !== null ? `${formatMoney(rec.recommended_max)} ₽` : "—"}</strong></div>
+            </div>
+          </div>
+        `
+            : ""
+        }
         ${
           ms
             ? `
@@ -385,11 +442,13 @@ export function renderComparisonReport(
     `;
 
     if (segEntries.length > 0) {
+      const compCount = report.results.filter((r) => r.provider_type === "company").length;
+      const privCount = report.results.filter((r) => r.provider_type === "private").length;
       filterHtml = `
         <div class="filter-pills" role="group" aria-label="Фильтр по типу исполнителя">
-          <button type="button" class="btn btn-sm ${segmentFilter === "all" ? "btn-primary" : "btn-secondary"}" data-seg-filter="all">Все</button>
-          <button type="button" class="btn btn-sm ${segmentFilter === "company" ? "btn-primary" : "btn-secondary"}" data-seg-filter="company">Компании</button>
-          <button type="button" class="btn btn-sm ${segmentFilter === "private" ? "btn-primary" : "btn-secondary"}" data-seg-filter="private">Частные исполнители</button>
+          <button type="button" class="btn btn-sm ${segmentFilter === "all" ? "btn-primary" : "btn-secondary"}" data-seg-filter="all">Все (${report.results.length})</button>
+          <button type="button" class="btn btn-sm ${segmentFilter === "company" ? "btn-primary" : "btn-secondary"}" data-seg-filter="company">Компании (${compCount})</button>
+          <button type="button" class="btn btn-sm ${segmentFilter === "private" ? "btn-primary" : "btn-secondary"}" data-seg-filter="private">Частные исполнители (${privCount})</button>
         </div>
       `;
     }
@@ -434,7 +493,31 @@ export function renderComparisonReport(
         .join("")
     : '<p class="field-hint">В выбранном сегменте пока нет предложений.</p>';
 
-  container.innerHTML = summaryHtml + filterHtml + cardsHtml;
+  const unpricedList = report.is_unlocked && Array.isArray(report.unpriced_results) ? report.unpriced_results : [];
+  const unpricedHtml = unpricedList.length
+    ? `
+      <details class="extra-details unpriced-drawer">
+        <summary>
+          <span>Исполнители без публичной цены («по договорённости»): ${unpricedList.length}</span>
+          <span class="field-hint">Не участвуют в расчёте рыночной медианы</span>
+        </summary>
+        <div class="unpriced-list">
+          ${unpricedList
+            .map(
+              (u) => `
+            <div class="unpriced-row">
+              <strong>${escapeHtml(u.provider_name)}</strong>
+              <span class="field-hint">Сходство ${u.similarity_score}% · ${escapeHtml(u.missing_info && u.missing_info[0] ? u.missing_info[0] : "цена не указана")}</span>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      </details>
+    `
+    : "";
+
+  container.innerHTML = summaryHtml + filterHtml + cardsHtml + unpricedHtml;
   attachCopyHandlers(container, visibleResults, scenarioTitle);
 
   const unlockBtn = container.querySelector("#btn-unlock-report");

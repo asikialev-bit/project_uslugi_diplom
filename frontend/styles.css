@@ -1528,6 +1528,46 @@ select {
   margin-bottom: 16px;
 }
 
+.report-summary-card--accent {
+  background-color: var(--bg-elevated);
+  box-shadow: inset 0 0 0 1px rgba(217, 107, 67, 0.28);
+}
+
+.adjusted-price-box {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg);
+  font-size: 0.8125rem;
+}
+
+.adjusted-price-box span {
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.unpriced-drawer {
+  margin-top: 20px;
+}
+
+.unpriced-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.unpriced-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg);
+  font-size: 0.875rem;
+}
+
 @media (max-width: 960px) {
 
   .hero-grid,
@@ -1595,4 +1635,78 @@ select {
     transition-duration: 140ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+.account-history-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.account-history-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-recessed);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.history-item:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.history-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.history-item-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-meta {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.history-badge {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+.history-badge--unlocked {
+  background: rgba(52, 211, 153, 0.14);
+  color: #6ee7b7;
 }

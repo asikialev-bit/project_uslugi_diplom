@@ -165,3 +165,49 @@ def test_smtp_delivery_error_returns_502(tmp_path: Path, monkeypatch) -> None:
         assert resp.status_code == 502
     finally:
         app.dependency_overrides.clear()
+
+
+def test_dev_topup_flag_and_user_history(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'history.db'}")
+    fake_sender = _FakeEmailSender()
+    app.dependency_overrides[get_email_sender] = lambda: fake_sender
+
+    try:
+        client = TestClient(app)
+        assert client.get("/me/history").status_code == 401
+
+        client.post("/auth/request-code", json={"email": "hist@example.com"})
+        _, code = fake_sender.sent[0]
+        assert (
+            client.post(
+                "/auth/verify-code",
+                json={"email": "hist@example.com", "code": code},
+            ).status_code
+            == 200
+        )
+
+        monkeypatch.setenv("APP_ENV", "development")
+        me_dev = client.get("/me")
+        assert me_dev.status_code == 200
+        assert me_dev.json()["dev_topup_enabled"] is True
+
+        monkeypatch.setenv("APP_ENV", "production")
+        me_prod = client.get("/me")
+        assert me_prod.status_code == 200
+        assert me_prod.json()["dev_topup_enabled"] is False
+
+        for i in range(6):
+            resp = client.post(
+                "/scenarios",
+                json={"id": f"scen-h-{i}", "title": f"Услуга {i}", "city": "Москва"},
+            )
+            assert resp.status_code == 200
+
+        hist = client.get("/me/history")
+        assert hist.status_code == 200
+        items = hist.json()["items"]
+        assert len(items) == 5
+        assert items[0]["id"] == "scen-h-5"
+        assert items[0]["is_unlocked"] is False
+    finally:
+        app.dependency_overrides.clear()

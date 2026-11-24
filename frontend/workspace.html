@@ -75,7 +75,7 @@
         <section id="step-scenario" class="step-block">
           <div class="field">
             <label for="scenario-title">Какую услугу оцениваем?</label>
-            <input id="scenario-title" class="input" type="text" placeholder="Например: Генеральная уборка квартиры" value="Срочная настройка под ключ" />
+            <input id="scenario-title" class="input" type="text" placeholder="Например: Генеральная уборка квартиры" value="" />
           </div>
 
           <div class="field-grid">
@@ -93,7 +93,7 @@
 
           <div class="field">
             <label for="scenario-works">Что важно включить в услугу (необязательно)</label>
-            <input id="scenario-works" class="input" type="text" placeholder="Например: аудит, настройка, уборка кухни" value="аудит, настройка" />
+            <input id="scenario-works" class="input" type="text" placeholder="Например: мытьё полов, санузел, кухня" value="" />
           </div>
 
           <!-- Подсказка для неавторизованного пользователя -->
@@ -136,23 +136,23 @@
               <div class="field-grid">
                 <div class="field">
                   <label for="scenario-volume">Объём</label>
-                  <input id="scenario-volume" class="input tabular" type="number" min="0.01" step="any" value="10" />
+                  <input id="scenario-volume" class="input tabular" type="number" min="0.01" step="any" value="1" />
                 </div>
                 <div class="field">
                   <label for="scenario-unit">Единица измерения</label>
-                  <input id="scenario-unit" class="input" type="text" value="hour" />
-                  <span class="field-hint">fixed, hour, sqm, month, session</span>
+                  <input id="scenario-unit" class="input" type="text" value="fixed" />
+                  <span class="field-hint">fixed, hour, sqm, room, month, session</span>
                 </div>
               </div>
 
               <div class="field">
                 <label for="scenario-components">Материалы и комплектующие</label>
-                <input id="scenario-components" class="input" type="text" value="материалы" />
+                <input id="scenario-components" class="input" type="text" placeholder="Например: моющие средства" value="" />
               </div>
 
               <div class="field">
                 <label for="scenario-conditions">Условия заказа</label>
-                <input id="scenario-conditions" class="input" type="text" value="срочно" />
+                <input id="scenario-conditions" class="input" type="text" placeholder="Например: срочно, выезд" value="" />
               </div>
 
               <div class="field">
@@ -231,15 +231,19 @@
               <div class="field-hint">Баланс: <strong id="account-balance" class="tabular">0</strong> кр.</div>
             </div>
             <div class="toolbar-actions">
-              <button type="button" id="btn-topup-dev" class="btn btn-secondary btn-sm">
+              <button type="button" id="btn-topup-dev" class="btn btn-secondary btn-sm" hidden>
                 +1 кредит (тест)
-              </button>
-              <button type="button" id="btn-load-archive" class="btn btn-secondary btn-sm">
-                Прошлая проверка
               </button>
               <button type="button" id="btn-logout" class="btn btn-ghost btn-sm">
                 Выйти
               </button>
+            </div>
+          </div>
+
+          <div class="account-history-box">
+            <h3 class="account-history-title">Последние проверки</h3>
+            <div id="account-history-list" class="history-list">
+              <div class="field-hint">Пока нет сохранённых проверок.</div>
             </div>
           </div>
 

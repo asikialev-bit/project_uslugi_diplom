@@ -7,8 +7,10 @@ from app.llm.client import (
 from app.llm.extractor import (
     OfferExtractionError,
     OfferExtractor,
+    RuleBasedOfferExtractor,
     ScenarioDetailsExtractor,
     ScenarioExtractionError,
+    UnitConversionEstimator,
 )
 
 __all__ = [
@@ -18,6 +20,8 @@ __all__ = [
     "OfferExtractionError",
     "OfferExtractor",
     "OpenAICompatibleLLMClient",
+    "RuleBasedOfferExtractor",
     "ScenarioDetailsExtractor",
     "ScenarioExtractionError",
+    "UnitConversionEstimator",
 ]

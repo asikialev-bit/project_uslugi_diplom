@@ -1,10 +1,9 @@
 import {
   extractScenarioDetails,
+  getAccountHistory,
   getCompanyProfile,
   getMe,
   getScenarioReport,
-  listOffers,
-  listScenarios,
   logoutUser,
   requestAuthCode,
   saveCompanyProfile,
@@ -21,10 +20,13 @@ initTheme();
 
 const state = {
   scenarioId: null,
+  lastQuerySignature: null,
   offers: [],
   user: null,
   creditsBalance: 0,
   hasCompanyProfile: false,
+  devTopupEnabled: false,
+  historyItems: [],
   lastReport: null,
   lastScenarioTitle: "задачу",
   segmentFilter: "all",
@@ -51,7 +53,7 @@ const els = {
   accountUserEmail: document.getElementById("account-user-email"),
   accountBalance: document.getElementById("account-balance"),
   btnTopupDev: document.getElementById("btn-topup-dev"),
-  btnLoadArchive: document.getElementById("btn-load-archive"),
+  accountHistoryList: document.getElementById("account-history-list"),
   btnLogout: document.getElementById("btn-logout"),
   companyStatusHint: document.getElementById("company-status-hint"),
   companyProviderType: document.getElementById("company-provider-type"),
@@ -155,9 +157,16 @@ function applyScenarioToForm(scenario) {
 }
 
 function readScenarioFromForm() {
-  if (!state.scenarioId) {
+  const signature = [
+    els.scenarioTitle.value.trim().toLowerCase(),
+    els.scenarioCity.value.trim().toLowerCase(),
+    String(Boolean(els.scenarioOnline.checked)),
+    els.scenarioWorks.value.trim().toLowerCase(),
+  ].join("|");
+  if (!state.scenarioId || (state.lastQuerySignature && state.lastQuerySignature !== signature)) {
     state.scenarioId = `scen-${Date.now()}`;
   }
+  state.lastQuerySignature = signature;
   const base = {
     id: state.scenarioId,
     title: els.scenarioTitle.value.trim() || "Сценарий заказа",
@@ -185,6 +194,70 @@ function readScenarioFromForm() {
   };
 }
 
+function renderAccountHistory() {
+  if (!els.accountHistoryList) return;
+  els.accountHistoryList.replaceChildren();
+  const items = state.historyItems || [];
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "field-hint";
+    empty.textContent = "Пока нет сохранённых проверок.";
+    els.accountHistoryList.appendChild(empty);
+    return;
+  }
+  for (const item of items) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "history-item";
+
+    const main = document.createElement("span");
+    main.className = "history-item-main";
+
+    const title = document.createElement("span");
+    title.className = "history-item-title";
+    title.textContent = item.title || "Сценарий заказа";
+
+    const meta = document.createElement("span");
+    meta.className = "history-item-meta";
+    const loc = item.is_online ? "Онлайн" : (item.city || "Город не указан");
+    meta.textContent = loc;
+
+    main.append(title, meta);
+
+    const badge = document.createElement("span");
+    badge.className = `history-badge${item.is_unlocked ? " history-badge--unlocked" : ""}`;
+    badge.textContent = item.is_unlocked ? "Полный отчёт" : "Превью";
+
+    btn.append(main, badge);
+    btn.addEventListener("click", async () => {
+      clearAlert();
+      try {
+        state.scenarioId = item.id;
+        if (item.scenario) {
+          applyScenarioToForm(item.scenario);
+        }
+        state.lastQuerySignature = [
+          els.scenarioTitle.value.trim().toLowerCase(),
+          els.scenarioCity.value.trim().toLowerCase(),
+          String(Boolean(els.scenarioOnline.checked)),
+          els.scenarioWorks.value.trim().toLowerCase(),
+        ].join("|");
+        closeAccountModal();
+        const report = await getScenarioReport(item.id);
+        state.segmentFilter = "all";
+        displayCurrentReport(report, item.title || "задачу");
+        const resultsSection = document.getElementById("step-results");
+        if (resultsSection) {
+          resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      } catch (err) {
+        showAlert(err.message);
+      }
+    });
+    els.accountHistoryList.appendChild(btn);
+  }
+}
+
 function renderAccountUi() {
   if (state.user) {
     els.accountPillText.textContent = `${state.user.email} · ${state.creditsBalance} кр.`;
@@ -193,10 +266,12 @@ function renderAccountUi() {
     els.accountUserEmail.textContent = state.user.email;
     els.accountBalance.textContent = String(state.creditsBalance);
     els.companyStatusHint.textContent = state.hasCompanyProfile ? "Заполнено" : "Не заполнено";
+    els.btnTopupDev.hidden = !state.devTopupEnabled;
     els.authGuestView.hidden = true;
     els.authUserView.hidden = false;
     els.guestScenarioHint.hidden = true;
     els.authScenarioExtras.hidden = false;
+    renderAccountHistory();
   } else {
     els.accountPillText.textContent = "Войти";
     els.creditsBadge.textContent = "Гость";
@@ -214,6 +289,13 @@ async function refreshAccountState() {
     state.user = me.user;
     state.creditsBalance = me.credits_balance ?? 0;
     state.hasCompanyProfile = Boolean(me.has_company_profile);
+    state.devTopupEnabled = Boolean(me.dev_topup_enabled);
+    try {
+      const historyRes = await getAccountHistory();
+      state.historyItems = historyRes.items || [];
+    } catch {
+      state.historyItems = [];
+    }
     if (state.hasCompanyProfile) {
       try {
         const company = await getCompanyProfile();
@@ -235,6 +317,8 @@ async function refreshAccountState() {
     state.user = null;
     state.creditsBalance = 0;
     state.hasCompanyProfile = false;
+    state.devTopupEnabled = false;
+    state.historyItems = [];
   }
   renderAccountUi();
 }
@@ -286,6 +370,11 @@ async function handleUnlockReport(scenarioId, scenarioTitle, unlockBtn) {
 
 async function runCompare(scrollToResults = false) {
   clearAlert();
+  if (!els.scenarioTitle.value.trim()) {
+    showAlert("Укажите название услуги, которую хотите оценить.");
+    els.scenarioTitle.focus();
+    return;
+  }
   els.btnCompare.disabled = true;
   try {
     const scenario = readScenarioFromForm();
@@ -306,6 +395,14 @@ async function runCompare(scrollToResults = false) {
 
     state.segmentFilter = "all";
     displayCurrentReport(report, scenario.title);
+    if (state.user) {
+      getAccountHistory()
+        .then((res) => {
+          state.historyItems = res.items || [];
+          renderAccountHistory();
+        })
+        .catch(() => {});
+    }
     if (scrollToResults) {
       const resultsSection = document.getElementById("step-results");
       if (resultsSection) {
@@ -488,30 +585,6 @@ els.btnTopupDev.addEventListener("click", async () => {
     showAlert(err.message);
   } finally {
     els.btnTopupDev.disabled = false;
-  }
-});
-
-els.btnLoadArchive.addEventListener("click", async () => {
-  clearAlert();
-  els.btnLoadArchive.disabled = true;
-  try {
-    const [scenarios, offers] = await Promise.all([listScenarios(), listOffers()]);
-    if (!scenarios.length && !offers.length) {
-      showAlert("В архиве пока пусто.");
-      return;
-    }
-    if (scenarios.length) {
-      const latestScenario = scenarios[scenarios.length - 1];
-      state.scenarioId = latestScenario.id;
-      applyScenarioToForm(latestScenario);
-    }
-    state.offers = offers;
-    closeAccountModal();
-    await runCompare(true);
-  } catch (err) {
-    showAlert(err.message);
-  } finally {
-    els.btnLoadArchive.disabled = false;
   }
 });
 

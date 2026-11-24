@@ -64,6 +64,9 @@ def test_freemium_report_masks_market_and_unlock_reveals_full_analysis(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'report.db'}")
+    monkeypatch.delenv("YANDEX_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("YANDEX_FOLDER_ID", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     sender = _CaptureEmailSender()
     app.dependency_overrides[get_email_sender] = lambda: sender
 
@@ -224,6 +227,16 @@ def test_freemium_report_masks_market_and_unlock_reveals_full_analysis(
         assert "Среди компаний" in pos["segment_summary_text"]
         assert "ниже медианы" in pos["summary_text"]
 
+        # Рекомендация цены
+        rec = paid_data["price_recommendation"]
+        assert rec is not None
+        assert rec["confidence"] == "high"
+        assert rec["based_on_count"] == 3
+        assert rec["recommended_min"] is not None
+        assert rec["recommended_optimal"] is not None
+        assert rec["recommended_max"] is not None
+        assert "коридор" in rec["strategy_text"]
+
         # Все конкуренты открыты и имеют детализацию
         assert all(not r["is_locked"] for r in paid_data["results"])
         assert client.get("/credits").json()["balance"] == 1
@@ -235,3 +248,85 @@ def test_freemium_report_masks_market_and_unlock_reveals_full_analysis(
         assert client.get("/credits").json()["balance"] == 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_adjusted_price_and_unpriced_separation() -> None:
+    from app.calculator import build_comparison_report
+    from app.models import OrderScenario, ServiceOffer
+
+    scenario = OrderScenario(
+        id="s-adj",
+        title="Сборка ПК",
+        required_works=["сборка", "установка Windows", "стресс-тест", "кабель-менеджмент"],
+        volume="1",
+        pricing_unit="fixed",
+    )
+    offers = [
+        ServiceOffer(
+            id="o-full",
+            provider_name="Мастер Полный",
+            service_title="Сборка ПК",
+            base_price="3000",
+            pricing_unit="fixed",
+            included_works=["сборка", "установка Windows", "стресс-тест", "кабель-менеджмент"],
+            exclusions_or_limits=["покупка железа"],
+        ),
+        ServiceOffer(
+            id="o-partial",
+            provider_name="Мастер Базовый",
+            service_title="Сборка ПК",
+            base_price="2000",
+            pricing_unit="fixed",
+            included_works=["сборка"],
+        ),
+        ServiceOffer(
+            id="o-noprice",
+            provider_name="Без Цены",
+            service_title="Сборка ПК",
+            base_price=None,
+            pricing_unit=None,
+        ),
+    ]
+
+    report = build_comparison_report(offers, scenario, is_unlocked=True)
+    assert len(report.results) == 2
+    assert len(report.unpriced_results) == 1
+    assert report.unpriced_results[0].provider_name == "Без Цены"
+
+    partial_res = next(r for r in report.results if r.offer_id == "o-partial")
+    assert partial_res.total_estimated_price == 2000
+    assert partial_res.adjusted_price is not None
+    assert partial_res.adjusted_price > 2000
+    assert partial_res.price_range_min is not None
+    assert partial_res.price_range_max is not None
+    assert partial_res.adjustment_note is not None
+
+    assert report.price_recommendation is not None
+    assert report.price_recommendation.confidence == "medium"
+    assert report.price_recommendation.based_on_count == 2
+
+
+def test_promo_outlier_is_excluded_from_market_summary() -> None:
+    from app.calculator import build_comparison_report
+    from app.models import OrderScenario, ServiceOffer
+
+    scenario = OrderScenario(
+        id="s-out",
+        title="Сборка ПК",
+        volume="1",
+        pricing_unit="fixed",
+    )
+    offers = [
+        ServiceOffer(id="o1", provider_name="Сервис 1", service_title="Сборка", base_price="1500", pricing_unit="fixed"),
+        ServiceOffer(id="o2", provider_name="Сервис 2", service_title="Сборка", base_price="2000", pricing_unit="fixed"),
+        ServiceOffer(id="o3", provider_name="Сервис 3", service_title="Сборка", base_price="2500", pricing_unit="fixed"),
+        ServiceOffer(id="o-promo", provider_name="Реклама 15р", service_title="Сборка", base_price="15", pricing_unit="fixed"),
+    ]
+
+    report = build_comparison_report(offers, scenario, is_unlocked=True)
+    assert report.market_summary is not None
+    assert report.market_summary.min_price == 1500
+    assert report.market_summary.median_price == 2000
+    assert len(report.results) == 3
+    assert len(report.unpriced_results) == 1
+    assert report.unpriced_results[0].provider_name == "Реклама 15р"
