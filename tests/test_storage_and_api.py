@@ -101,3 +101,29 @@ def test_api_direct_compare() -> None:
     assert resp.status_code == 200
     result = resp.json()
     assert result[0]["total_estimated_price"] == "2500"
+
+
+def test_api_delete_offer_and_scenario(tmp_path: Path, monkeypatch) -> None:
+    db_file = tmp_path / "delete.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
+
+    client.post(
+        "/offers",
+        json={
+            "id": "o-del",
+            "provider_name": "Исполнитель",
+            "service_title": "Услуга",
+        },
+    )
+    client.post(
+        "/scenarios",
+        json={
+            "id": "s-del",
+            "title": "Сценарий",
+        },
+    )
+
+    assert client.delete("/offers/o-del").status_code == 200
+    assert client.delete("/offers/o-del").status_code == 404
+    assert client.delete("/scenarios/s-del").status_code == 200
+    assert client.delete("/scenarios/s-del").status_code == 404

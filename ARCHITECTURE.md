@@ -15,18 +15,17 @@
 
 | Модуль | Ответственность | Текущее состояние |
 | --- | --- | --- |
-| `app/main.py` | Точка входа FastAPI, маршруты REST API и статики | Реализованы `/`, `/workspace`, `/static/*`, `/health`, `/offers`, `/offers/extract`, `/scenarios`, `/compare`, `/scenarios/{id}/compare` |
-| `app/models/` | Pydantic-модели предметной области и нормализация единиц | Реализованы `domain.py` и `units.py` (`normalize_unit`, `get_unit_conversion_factor`) |
-| `app/rules/` | Правила сопоставимости и проверки полноты данных | Реализованы `completeness.py`, `comparability.py` и `evaluator.py` |
-| `app/calculator/` | Расчёт итоговой стоимости с переводом единиц и активацией условных доплат | Реализован `pricing.py` (`calculate_comparison`, `compare_offers`) |
-| `app/storage/` | Изолированный слой работы с БД (SQLite) | Реализован `sqlite_repo.py` (`SQLiteRepository`, `resolve_db_path`) |
-| `app/llm/` | Извлечение структурированных данных из текстов через LLM | Реализованы `client.py` и `extractor.py` (`OfferExtractor`) |
-| `frontend/` | Веб-интерфейс (обзорная страница и рабочий стол сравнения) | Реализованы `index.html`, `workspace.html`, `styles.css`, `theme.js`, `motion.js`, `api.js`, `render.js`, `workspace.js` |
-| `tests/` | Автоматические тесты (`pytest`) | Реализованы `test_health.py`, `test_models.py`, `test_rules.py`, `test_calculator.py`, `test_storage_and_api.py`, `test_llm_extractor.py`, `test_e2e_demo.py`, `test_frontend.py` |
+| `app/main.py` | Точка входа FastAPI, маршруты REST API и статики | Реализованы `/`, `/workspace`, `/static/*`, `/health`, `/auth/*`, `/me`, `/me/company`, `/credits`, `/credits/topup` (dev), `/offers` (`GET`/`POST`/`DELETE`), `/offers/extract`, `/scenarios` (`GET`/`POST`/`DELETE`), `/scenarios/extract-details`, `/compare`, `/scenarios/{id}/compare`, `/scenarios/{id}/report`, `/scenarios/{id}/unlock` |
+| `app/auth/` | Беспарольная авторизация по OTP-кодам на email и сессии | Реализованы `email_sender.py` (`ConsoleEmailSender`, `SMTPEmailSender`) и `service.py` (`AuthService`) |
+| `app/models/` | Pydantic-модели предметной области и нормализация единиц | Реализованы `domain.py` (`ProviderType`, `SimilarityBreakdown`, `MarketSummary`, `OwnPositioning`, `ComparisonReportResponse`, `ScenarioDetailsDraft`) и `units.py` (`normalize_unit`, `get_unit_conversion_factor` на базе `Fraction`) |
+| `app/rules/` | Правила сопоставимости, полноты данных и оценки сходства | Реализованы `matching.py`, `completeness.py`, `comparability.py`, `similarity.py` (45/30/15/10) и `evaluator.py` |
+| `app/calculator/` | Расчёт стоимости, сводки рынка и серверное скрытие freemium | Реализован `pricing.py` (`calculate_comparison`, `compare_offers`, `build_comparison_report` с сегментацией `company`/`private`) |
+| `app/storage/` | Изолированный слой работы с БД (SQLite) | Реализован `sqlite_repo.py` (`SQLiteRepository`: предложения, сценарии, пользователи, OTP-коды, сессии, профили компаний, `credit_ledger`, `scenario_unlocks`) |
+| `app/llm/` | Извлечение структурированных данных из текстов через LLM | Реализованы `client.py` и `extractor.py` (`OfferExtractor`, `ScenarioDetailsExtractor`) |
+| `frontend/` | Веб-интерфейс (обзорная страница и рабочий стол сравнения) | Реализованы `index.html`, `workspace.html` (модальный вход с размытием фона, компактный сценарий, профиль компании, сегментные фильтры), `styles.css`, `theme.js`, `motion.js`, `api.js`, `render.js`, `workspace.js` |
+| `tests/` | Автоматические тесты (`pytest`) | Реализованы `test_health.py`, `test_models.py`, `test_rules.py`, `test_similarity.py`, `test_calculator.py`, `test_storage_and_api.py`, `test_llm_extractor.py`, `test_e2e_demo.py`, `test_frontend.py`, `test_auth_and_company.py`, `test_credits_and_report.py` |
 
-## Будущее расширение: аккаунты и кредиты (запланировано на Шаг 9)
+## Кредиты, фримиум и оплата (Шаги 9.2–10)
 
-Для коммерческой модели предусмотрено расширение слоя хранения и API:
-- `users` (`id`, `email`, `password_hash`, `created_at`) — учётные записи пользователей.
-- `credit_ledger` (`id`, `user_id`, `delta`, `reason`, `created_at`) — журнал операций начисления и списания кредитов (в первую очередь за вызов платного LLM-извлечения).
-- `payments` (`id`, `user_id`, `amount`, `credits_granted`, `provider_payment_id`, `status`) — история оплат с проверкой подписи вебхуков платёжного шлюза.
+- `credit_ledger` (`id`, `user_id`, `delta`, `reason`, `reference_id`, `created_at`) и `scenario_unlocks` (`user_id`, `scenario_id`, `unlocked_at`) — реализованы в Шаге 9.2б (стартовый баланс `0`, атомарное списание через `BEGIN IMMEDIATE`).
+- `payments` (`id`, `user_id`, `amount`, `credits_granted`, `provider_payment_id`, `status`) — планируется в Шаге 10 вместе с модулем поиска живых конкурентов (`app/discovery/`).

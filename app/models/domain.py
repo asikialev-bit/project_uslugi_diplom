@@ -7,6 +7,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.models.units import FIXED_UNIT, normalize_unit
 
 
+def _clean_optional_str(value: Optional[str]) -> Optional[str]:
+    """Удаляет лишние пробелы и превращает пустые строки в None."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    return value
+
+
 class ComparabilityStatus(str, Enum):
     """Статус сопоставимости предложения со сценарием заказа."""
 
@@ -21,6 +31,14 @@ class DataCompleteness(str, Enum):
     COMPLETE = "complete"
     PARTIAL = "partial"
     INSUFFICIENT = "insufficient"
+
+
+class ProviderType(str, Enum):
+    """Сегмент исполнителя: компания или частный мастер."""
+
+    COMPANY = "company"
+    PRIVATE = "private"
+    UNKNOWN = "unknown"
 
 
 class Surcharge(BaseModel):
@@ -92,6 +110,27 @@ class ServiceOffer(BaseModel):
         default_factory=list,
         description="Условия выполнения услуги",
     )
+    city: Optional[str] = Field(
+        default=None,
+        description="Город оказания услуги",
+    )
+    is_online: bool = Field(
+        default=False,
+        description="Оказывается ли услуга дистанционно / онлайн",
+    )
+    source_url: Optional[str] = Field(
+        default=None,
+        description="Ссылка на источник или страницу прайса",
+    )
+    provider_type: ProviderType = Field(
+        default=ProviderType.UNKNOWN,
+        description="Тип исполнителя: компания, частный исполнитель или не определён",
+    )
+
+    @field_validator("city", "source_url", mode="before")
+    @classmethod
+    def normalize_optional_strings(cls, value: Optional[str]) -> Optional[str]:
+        return _clean_optional_str(value)
 
     @field_validator("pricing_unit")
     @classmethod
@@ -141,6 +180,19 @@ class OrderScenario(BaseModel):
         default_factory=dict,
         description="Коэффициенты перевода объёма сценария в единицы предложений",
     )
+    city: Optional[str] = Field(
+        default=None,
+        description="Целевой город оказания услуги",
+    )
+    is_online: bool = Field(
+        default=False,
+        description="Допустимо ли онлайн-оказание услуги",
+    )
+
+    @field_validator("city", mode="before")
+    @classmethod
+    def normalize_optional_city(cls, value: Optional[str]) -> Optional[str]:
+        return _clean_optional_str(value)
 
     @field_validator("pricing_unit")
     @classmethod
@@ -167,13 +219,73 @@ class PriceLineItem(BaseModel):
     amount: Decimal = Field(..., ge=0, description="Рассчитанная сумма")
 
 
+class SimilarityFactor(BaseModel):
+    """Детализация одного фактора оценки сходства предложения и сценария."""
+
+    score: int = Field(..., ge=0, le=100, description="Оценка фактора от 0 до 100")
+    weight: int = Field(..., ge=0, le=100, description="Вес фактора в процентах")
+    weighted_contribution: Decimal = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Вклад фактора в итоговый взвешенный индекс",
+    )
+    details: List[str] = Field(
+        default_factory=list,
+        description="Пояснения, из чего сложилась оценка фактора",
+    )
+
+
+class SimilarityBreakdown(BaseModel):
+    """Многометрическая разбивка сходства услуги и прозрачности прайса (45/30/15/10)."""
+
+    scope_coverage: SimilarityFactor = Field(
+        ...,
+        description="Покрытие обязательных работ, компонентов и соответствие масштабу (45%)",
+    )
+    price_transparency: SimilarityFactor = Field(
+        ...,
+        description="Полнота и прозрачность ценовых условий прайса (30%)",
+    )
+    geo_and_format: SimilarityFactor = Field(
+        ...,
+        description="Соответствие города и формата оказания услуги (15%)",
+    )
+    unit_and_volume: SimilarityFactor = Field(
+        ...,
+        description="Совместимость единиц измерения и границ объёма (10%)",
+    )
+
+
 class ComparisonResult(BaseModel):
     """Объяснимый результат сопоставления предложения со сценарием."""
 
     offer_id: str = Field(..., min_length=1, description="ID оцениваемого предложения")
     provider_name: str = Field(..., min_length=1, description="Название исполнителя")
+    is_own_company: bool = Field(
+        default=False,
+        description="Является ли предложение предложением своей компании пользователя",
+    )
+    is_locked: bool = Field(
+        default=False,
+        description="Скрыты ли детали предложения до оплаты отчёта",
+    )
+    provider_type: ProviderType = Field(
+        default=ProviderType.UNKNOWN,
+        description="Тип исполнителя (скрывается как unknown в заблокированных карточках)",
+    )
     status: ComparabilityStatus = Field(..., description="Статус сопоставимости")
     completeness: DataCompleteness = Field(..., description="Полнота исходных сведений")
+    similarity_score: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Итоговый взвешенный индекс сходства от 0 до 100%",
+    )
+    similarity_breakdown: Optional[SimilarityBreakdown] = Field(
+        default=None,
+        description="Разбивка индекса сходства по 4 факторам",
+    )
     total_estimated_price: Optional[Decimal] = Field(
         default=None,
         ge=0,
@@ -190,4 +302,126 @@ class ComparisonResult(BaseModel):
     missing_info: List[str] = Field(
         default_factory=list,
         description="Каких сведений не хватает для достоверного вывода",
+    )
+
+
+class SegmentSummary(BaseModel):
+    """Ценовая сводка по отдельному сегменту исполнителей (компании / частники)."""
+
+    provider_type: ProviderType
+    total_offers_found: int = Field(..., ge=0)
+    comparable_offers_count: int = Field(..., ge=0)
+    min_price: Optional[Decimal] = Field(default=None, ge=0)
+    median_price: Optional[Decimal] = Field(default=None, ge=0)
+    max_price: Optional[Decimal] = Field(default=None, ge=0)
+
+
+class MarketSummary(BaseModel):
+    """Агрегированная сводка по рынку для оплаченного отчёта."""
+
+    total_offers_found: int = Field(..., ge=0, description="Всего оценено конкурентов")
+    comparable_offers_count: int = Field(
+        ..., ge=0, description="Число сопоставимых конкурентов с расчётной ценой"
+    )
+    min_price: Optional[Decimal] = Field(
+        default=None, ge=0, description="Минимальная расчётная цена среди конкурентов"
+    )
+    median_price: Optional[Decimal] = Field(
+        default=None, ge=0, description="Медианная расчётная цена среди конкурентов"
+    )
+    max_price: Optional[Decimal] = Field(
+        default=None, ge=0, description="Максимальная расчётная цена среди конкурентов"
+    )
+    segments: Dict[str, SegmentSummary] = Field(
+        default_factory=dict,
+        description="Разбивка сводки по сегментам (company / private)",
+    )
+
+
+class OwnPositioning(BaseModel):
+    """Позиционирование компании пользователя относительно рынка."""
+
+    offer_id: str = Field(..., min_length=1)
+    own_provider_type: ProviderType = Field(default=ProviderType.UNKNOWN)
+    own_price: Optional[Decimal] = Field(default=None, ge=0)
+    price_rank: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Позиция компании по цене (1 — самое выгодное предложение)",
+    )
+    ranked_offers_count: int = Field(
+        default=0, ge=0, description="Сколько предложений участвует в ценовом рейтинге"
+    )
+    diff_from_median_amount: Optional[Decimal] = Field(
+        default=None,
+        description="Отклонение своей цены от медианы рынка в рублях (отрицательное — дешевле)",
+    )
+    diff_from_median_percent: Optional[Decimal] = Field(
+        default=None,
+        description="Отклонение своей цены от медианы рынка в процентах",
+    )
+    segment_price_rank: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Позиция по цене внутри своего сегмента (компании или частники)",
+    )
+    segment_ranked_count: int = Field(
+        default=0,
+        ge=0,
+        description="Сколько предложений в своём сегменте участвуют в рейтинге",
+    )
+    segment_diff_from_median_percent: Optional[Decimal] = Field(
+        default=None,
+        description="Отклонение от медианы своего сегмента в процентах",
+    )
+    segment_summary_text: Optional[str] = Field(
+        default=None,
+        description="Пояснение позиции внутри своего сегмента",
+    )
+    own_similarity_score: int = Field(default=0, ge=0, le=100)
+    summary_text: str = Field(..., min_length=1)
+
+
+class ComparisonReportResponse(BaseModel):
+    """Структурированный отчёт по сценарию (freemium-превью или полный платный отчёт)."""
+
+    scenario_id: str = Field(..., min_length=1)
+    is_unlocked: bool = Field(..., description="Оплачен ли полный отчёт пользователем")
+    competitors_count: int = Field(..., ge=0, description="Всего найдено конкурентов")
+    locked_competitors_count: int = Field(
+        ..., ge=0, description="Сколько конкурентов скрыто до оплаты"
+    )
+    own_result: Optional[ComparisonResult] = Field(
+        default=None, description="Результат проверки предложения своей компании"
+    )
+    market_summary: Optional[MarketSummary] = Field(
+        default=None, description="Сводка по общему рынку (доступна после оплаты)"
+    )
+    own_positioning: Optional[OwnPositioning] = Field(
+        default=None, description="Позиционирование компании на рынке (после оплаты)"
+    )
+    results: List[ComparisonResult] = Field(
+        default_factory=list,
+        description="Список результатов (полный или с серверным скрытием до оплаты)",
+    )
+
+
+class ScenarioDetailsDraft(BaseModel):
+    """Черновик деталей сценария, извлечённый из произвольного текста на подтверждение."""
+
+    required_works: List[str] = Field(
+        default_factory=list,
+        description="Атомарные обязательные работы, извлечённые из описания",
+    )
+    required_components: List[str] = Field(
+        default_factory=list,
+        description="Требуемые материалы, расходники или комплектующие",
+    )
+    conditions: List[str] = Field(
+        default_factory=list,
+        description="Особые условия заказа (срочность, выезд, график и т.д.)",
+    )
+    needs_confirmation: bool = Field(
+        default=True,
+        description="Нужно ли подтверждение тегов пользователем перед расчётом",
     )

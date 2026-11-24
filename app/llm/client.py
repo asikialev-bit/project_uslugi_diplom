@@ -8,6 +8,10 @@ class LLMConfigurationError(Exception):
     """Ошибка конфигурации внешнего LLM-провайдера."""
 
 
+class LLMProviderError(Exception):
+    """Ошибка сети или некорректный ответ внешнего LLM-провайдера."""
+
+
 class LLMClient(Protocol):
     """Абстрактный интерфейс клиента языковой модели."""
 
@@ -61,15 +65,28 @@ class OpenAICompatibleLLMClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
-        with httpx.Client(timeout=self.timeout_seconds) as client:
-            response = client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(
+                f"LLM API вернул ошибку HTTP {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise LLMProviderError(
+                f"Ошибка соединения с LLM API: {exc}"
+            ) from exc
+        except ValueError as exc:
+            raise LLMProviderError(
+                f"LLM API вернул некорректный JSON-ответ: {exc}"
+            ) from exc
 
         choices = data.get("choices") or []
         if not choices:
-            raise ValueError("LLM вернула пустой список choices")
+            raise LLMProviderError("LLM вернула пустой список choices")
         content: Optional[str] = choices[0].get("message", {}).get("content")
         if not content:
-            raise ValueError("LLM вернула пустой текст ответа")
+            raise LLMProviderError("LLM вернула пустой текст ответа")
         return content

@@ -156,3 +156,37 @@ def test_evaluate_offer_separates_axes() -> None:
 
     assert evaluation.completeness.completeness == DataCompleteness.INSUFFICIENT
     assert evaluation.comparability.status == ComparabilityStatus.NOT_COMPARABLE
+
+
+def test_incompatible_units_do_not_emit_false_volume_bounds_error() -> None:
+    scenario = OrderScenario(
+        id="scen-month",
+        title="Сопровождение на 1 месяц",
+        volume=Decimal("1"),
+        pricing_unit="month",
+    )
+    offer = ServiceOffer(
+        id="offer-hr",
+        provider_name="Подрядчик",
+        service_title="Поддержка",
+        base_price=Decimal("1000"),
+        pricing_unit="hour",
+        min_volume=Decimal("10"),
+    )
+
+    assessment = check_comparability(offer, scenario)
+
+    assert assessment.status == ComparabilityStatus.NOT_COMPARABLE
+    assert not any("меньше минимального" in d for d in assessment.differences)
+
+
+def test_substring_matching_covers_offer_conditions() -> None:
+    scenario = _base_scenario().model_copy(update={"conditions": ["срочно"]})
+    offer = _complete_offer().model_copy(
+        update={"conditions": ["срочно в день заказа"]}
+    )
+
+    evaluation = evaluate_offer(offer, scenario)
+
+    assert evaluation.comparability.status == ComparabilityStatus.COMPARABLE
+    assert evaluation.completeness.completeness == DataCompleteness.COMPLETE

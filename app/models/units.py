@@ -1,4 +1,5 @@
 from decimal import Decimal
+from fractions import Fraction
 from typing import Dict, Optional, Tuple
 
 FIXED_UNIT = "fixed"
@@ -52,15 +53,14 @@ _UNIT_ALIASES: Dict[str, str] = {
     "занятие": "session",
 }
 
-# Точные детерминированные коэффициенты: (из_единицы, в_единицу) -> множитель.
-# Например, 1 hour = 60 minute -> при цене за minute и сценарии в hour нужно умножить на 60.
-_EXACT_CONVERSIONS: Dict[Tuple[str, str], Decimal] = {
-    ("hour", "minute"): Decimal("60"),
-    ("minute", "hour"): Decimal("1") / Decimal("60"),
-    ("km", "meter"): Decimal("1000"),
-    ("meter", "km"): Decimal("0.001"),
-    ("kg", "gram"): Decimal("1000"),
-    ("gram", "kg"): Decimal("0.001"),
+# Точные рациональные коэффициенты: (из_единицы, в_единицу) -> Fraction.
+_EXACT_CONVERSIONS: Dict[Tuple[str, str], Fraction] = {
+    ("hour", "minute"): Fraction(60, 1),
+    ("minute", "hour"): Fraction(1, 60),
+    ("km", "meter"): Fraction(1000, 1),
+    ("meter", "km"): Fraction(1, 1000),
+    ("kg", "gram"): Fraction(1000, 1),
+    ("gram", "kg"): Fraction(1, 1000),
 }
 
 
@@ -76,23 +76,19 @@ def get_unit_conversion_factor(
     scenario_unit: str,
     offer_unit: str,
     custom_conversions: Optional[Dict[str, Decimal]] = None,
-) -> Optional[Decimal]:
-    """Возвращает множитель для перевода объёма сценария в единицы предложения.
-
-    Например, если в сценарии 2 часа, а предложение оценивается за минуту,
-    множитель равен 60 (2 часа = 120 минут).
-    """
+) -> Optional[Fraction]:
+    """Возвращает точный рациональный множитель для перевода объёма сценария в единицы предложения."""
     norm_scenario = normalize_unit(scenario_unit)
     norm_offer = normalize_unit(offer_unit)
 
     if norm_scenario == norm_offer:
-        return Decimal("1")
+        return Fraction(1, 1)
 
     if custom_conversions:
         normalized_custom = {
             normalize_unit(k): v for k, v in custom_conversions.items()
         }
         if norm_offer in normalized_custom:
-            return normalized_custom[norm_offer]
+            return Fraction(str(normalized_custom[norm_offer]))
 
     return _EXACT_CONVERSIONS.get((norm_scenario, norm_offer))

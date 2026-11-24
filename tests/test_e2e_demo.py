@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.llm import OfferExtractor
-from app.main import app, get_offer_extractor
+from app.main import app, get_offer_extractor, require_user
 
 
 class _DemoLLMClient:
@@ -98,6 +98,11 @@ def test_end_to_end_demo_scenario(tmp_path: Path, monkeypatch) -> None:
         },
     }
 
+    app.dependency_overrides[require_user] = lambda: {
+        "id": "demo-user",
+        "email": "demo@example.com",
+        "created_at": "2026-01-01",
+    }
     app.dependency_overrides[get_offer_extractor] = lambda: OfferExtractor(
         _DemoLLMClient(llm_responses)
     )

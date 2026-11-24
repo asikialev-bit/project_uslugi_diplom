@@ -1281,6 +1281,253 @@ select {
   color: var(--text);
 }
 
+/* Кабинет, баланс, рыночная сводка и заблокированные карточки */
+.account-pill-btn {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.account-panel {
+  margin-bottom: 28px;
+  padding: 20px 24px;
+}
+
+.account-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.account-summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-body {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bg-recessed);
+}
+
+.account-user-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.account-email {
+  font-weight: 600;
+}
+
+.badge-soft {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background-color: var(--bg-recessed);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.badge-own {
+  background-color: rgba(31, 143, 83, 0.14);
+  color: var(--text);
+}
+
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.report-summary-card {
+  background-color: var(--bg-recessed);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.report-summary-card h3 {
+  margin: 0 0 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.report-kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.report-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.report-kpi span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.report-kpi strong {
+  font-size: 1.0625rem;
+}
+
+.unlock-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-recessed);
+  margin-bottom: 20px;
+}
+
+.unlock-banner p {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.result-card--locked {
+  opacity: 0.82;
+}
+
+.locked-mask-note {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.similarity-details {
+  margin-top: 12px;
+}
+
+.similarity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.similarity-cell {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg);
+  font-size: 0.8125rem;
+}
+
+.guest-hint-row {
+  margin-top: 8px;
+}
+
+.inline-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Центрированное модальное окно с размытием фона */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background-color: rgba(12, 12, 12, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal-card {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background-color: var(--bg-elevated);
+  border-radius: var(--radius-xl);
+  padding: 28px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-title {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  line-height: 1.2;
+}
+
+.modal-body {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bg-recessed);
+}
+
+.segment-breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bg);
+}
+
+.segment-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8125rem;
+}
+
+.segment-row span {
+  color: var(--text-muted);
+}
+
+.filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 @media (max-width: 960px) {
 
   .hero-grid,

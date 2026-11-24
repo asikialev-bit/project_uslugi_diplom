@@ -3,7 +3,12 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from app.models import DataCompleteness, OrderScenario, ServiceOffer
-from app.rules.comparability import surcharge_matches_conditions
+from app.rules.matching import (
+    assess_geo_match,
+    normalize_text,
+    surcharge_matches_conditions,
+    text_matches_any,
+)
 
 
 class CompletenessAssessment(BaseModel):
@@ -35,27 +40,29 @@ def check_completeness(
     if scenario.required_components and not offer.included_components:
         missing_info.append("Не указаны включённые компоненты или материалы")
 
+    if assess_geo_match(offer, scenario).is_missing:
+        missing_info.append("Не указан город или формат оказания услуги")
+
     for surcharge in offer.surcharges:
         if not surcharge.is_mandatory and not surcharge.condition_description:
             missing_info.append(
                 f"Не указано условие применения доплаты «{surcharge.name}»"
             )
 
-    if scenario.conditions:
-        offer_conds = {c.strip().lower() for c in offer.conditions if c.strip()}
-        exclusions = {e.strip().lower() for e in offer.exclusions_or_limits if e.strip()}
-        for cond in scenario.conditions:
-            norm_cond = cond.strip().lower()
-            if not norm_cond:
-                continue
-            in_offer = norm_cond in offer_conds or norm_cond in exclusions
-            in_surcharges = any(
-                surcharge_matches_conditions(s, [cond]) for s in offer.surcharges
+    for cond in scenario.conditions:
+        norm_cond = normalize_text(cond)
+        if not norm_cond:
+            continue
+        in_offer = text_matches_any(
+            norm_cond, offer.conditions
+        ) or text_matches_any(norm_cond, offer.exclusions_or_limits)
+        in_surcharges = any(
+            surcharge_matches_conditions(s, [norm_cond]) for s in offer.surcharges
+        )
+        if not in_offer and not in_surcharges:
+            missing_info.append(
+                f"Не подтверждено влияние условия сценария «{cond}» на цену или выполнение"
             )
-            if not in_offer and not in_surcharges:
-                missing_info.append(
-                    f"Не подтверждено влияние условия сценария «{cond}» на цену или выполнение"
-                )
 
     if has_critical_missing:
         status = DataCompleteness.INSUFFICIENT

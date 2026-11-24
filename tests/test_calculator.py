@@ -186,3 +186,24 @@ def test_compare_offers_sorts_by_status_and_price() -> None:
     )
 
     assert [r.offer_id for r in results] == ["o2", "o1", "o3", "o4"]
+
+
+def test_minute_to_hour_conversion_has_no_fraction_tail() -> None:
+    scenario = OrderScenario(
+        id="scen-min",
+        title="Консультация 60 минут",
+        volume=Decimal("60"),
+        pricing_unit="minute",
+    )
+    offer = ServiceOffer(
+        id="offer-hr",
+        provider_name="Юрист",
+        service_title="Консультация",
+        base_price=Decimal("1000"),
+        pricing_unit="hour",
+    )
+
+    result = calculate_comparison(offer, scenario)
+
+    assert result.total_estimated_price == Decimal("1000")
+    assert str(result.total_estimated_price) == "1000"

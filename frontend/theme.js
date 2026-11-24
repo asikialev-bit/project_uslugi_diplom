@@ -1,9 +1,20 @@
 const THEME_KEY = "servicematch-theme";
+const THEME_COLORS = {
+  light: "#FBFBF9",
+  dark: "#111110",
+};
 
 function getSystemTheme() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
+}
+
+function updateMetaThemeColor(effectiveTheme) {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    meta.setAttribute("content", THEME_COLORS[effectiveTheme] || THEME_COLORS.light);
+  }
 }
 
 function applyTheme(choice) {
@@ -17,9 +28,11 @@ function applyTheme(choice) {
 }
 
 function updateThemeButton(choice) {
+  const effective = choice === "light" || choice === "dark" ? choice : getSystemTheme();
+  updateMetaThemeColor(effective);
+
   const btn = document.getElementById("theme-toggle");
   if (!btn) return;
-  const effective = choice === "light" || choice === "dark" ? choice : getSystemTheme();
   const label = effective === "dark" ? "Тёмная тема" : "Светлая тема";
   btn.setAttribute("aria-label", `Переключить тему (сейчас: ${label})`);
   btn.setAttribute("title", `${label} — нажмите, чтобы переключить`);

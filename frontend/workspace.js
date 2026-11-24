@@ -1,65 +1,90 @@
 import {
-  compareDirect,
-  extractOfferFromText,
+  extractScenarioDetails,
+  getCompanyProfile,
+  getMe,
+  getScenarioReport,
   listOffers,
   listScenarios,
+  logoutUser,
+  requestAuthCode,
+  saveCompanyProfile,
   saveOffer,
   saveScenario,
+  topupCredits,
+  unlockScenarioReport,
+  verifyAuthCode,
 } from "/static/api.js";
-import { renderComparisonResults, renderOffersList } from "/static/render.js";
+import { renderComparisonReport, renderComparisonResults } from "/static/render.js";
 import { initTheme } from "/static/theme.js";
 
 initTheme();
 
 const state = {
+  scenarioId: null,
   offers: [],
-  manualSurcharges: [],
-  editingIndex: null,
+  user: null,
+  creditsBalance: 0,
+  hasCompanyProfile: false,
+  lastReport: null,
+  lastScenarioTitle: "задачу",
+  segmentFilter: "all",
 };
 
 const els = {
   alertBox: document.getElementById("workspace-alert"),
+
+  accountPill: document.getElementById("account-pill"),
+  accountPillText: document.getElementById("account-pill-text"),
+  accountBackdrop: document.getElementById("account-modal-backdrop"),
+  accountPanel: document.getElementById("account-panel"),
+  btnCloseAccount: document.getElementById("btn-close-account"),
+  btnGuestLoginLink: document.getElementById("btn-guest-login-link"),
+  accountSummarySub: document.getElementById("account-summary-sub"),
+  creditsBadge: document.getElementById("credits-badge"),
+  authGuestView: document.getElementById("auth-guest-view"),
+  authUserView: document.getElementById("auth-user-view"),
+  authEmail: document.getElementById("auth-email"),
+  authCodeField: document.getElementById("auth-code-field"),
+  authCode: document.getElementById("auth-code"),
+  btnRequestCode: document.getElementById("btn-request-code"),
+  btnVerifyCode: document.getElementById("btn-verify-code"),
+  accountUserEmail: document.getElementById("account-user-email"),
+  accountBalance: document.getElementById("account-balance"),
+  btnTopupDev: document.getElementById("btn-topup-dev"),
+  btnLoadArchive: document.getElementById("btn-load-archive"),
+  btnLogout: document.getElementById("btn-logout"),
+  companyStatusHint: document.getElementById("company-status-hint"),
+  companyProviderType: document.getElementById("company-provider-type"),
+  companyProvider: document.getElementById("company-provider"),
+  companyTitle: document.getElementById("company-title"),
+  companyPrice: document.getElementById("company-price"),
+  companyUnit: document.getElementById("company-unit"),
+  companyCity: document.getElementById("company-city"),
+  companyOnline: document.getElementById("company-online"),
+  companyWorks: document.getElementById("company-works"),
+  companyComponents: document.getElementById("company-components"),
+  companyExclusions: document.getElementById("company-exclusions"),
+  btnSaveCompany: document.getElementById("btn-save-company"),
+
+  guestScenarioHint: document.getElementById("guest-scenario-hint"),
+  authScenarioExtras: document.getElementById("auth-scenario-extras"),
   scenarioTitle: document.getElementById("scenario-title"),
+  scenarioCity: document.getElementById("scenario-city"),
+  scenarioOnline: document.getElementById("scenario-online"),
+  scenarioWorks: document.getElementById("scenario-works"),
+  scenarioFreeText: document.getElementById("scenario-free-text"),
+  btnExtractScenario: document.getElementById("btn-extract-scenario"),
+  scenarioDraftBadge: document.getElementById("scenario-draft-badge"),
+  btnConfirmScenarioTags: document.getElementById("btn-confirm-scenario-tags"),
   scenarioVolume: document.getElementById("scenario-volume"),
   scenarioUnit: document.getElementById("scenario-unit"),
-  scenarioWorks: document.getElementById("scenario-works"),
   scenarioComponents: document.getElementById("scenario-components"),
   scenarioConditions: document.getElementById("scenario-conditions"),
   scenarioConversions: document.getElementById("scenario-conversions"),
+  scenarioExtraDetails: document.getElementById("scenario-extra-details"),
 
-  tabManual: document.getElementById("tab-manual"),
-  tabLlm: document.getElementById("tab-llm"),
-  panelManual: document.getElementById("panel-manual"),
-  panelLlm: document.getElementById("panel-llm"),
-
-  llmText: document.getElementById("llm-raw-text"),
-  llmProvider: document.getElementById("llm-provider"),
-  btnExtractLlm: document.getElementById("btn-extract-llm"),
-
-  offerProvider: document.getElementById("offer-provider"),
-  offerTitle: document.getElementById("offer-title"),
-  offerPrice: document.getElementById("offer-price"),
-  offerUnit: document.getElementById("offer-unit"),
-  offerWorks: document.getElementById("offer-works"),
-  offerComponents: document.getElementById("offer-components"),
-  offerExclusions: document.getElementById("offer-exclusions"),
-  offerConditions: document.getElementById("offer-conditions"),
-  offerMinVolume: document.getElementById("offer-min-volume"),
-  offerMaxVolume: document.getElementById("offer-max-volume"),
-  offerExtraDetails: document.getElementById("offer-extra-details"),
-  surchargesContainer: document.getElementById("manual-surcharges"),
-  btnAddSurcharge: document.getElementById("btn-add-surcharge"),
-  btnAddOffer: document.getElementById("btn-add-offer"),
-  btnCancelEdit: document.getElementById("btn-cancel-edit"),
-
-  offersList: document.getElementById("offers-list"),
   resultsContainer: document.getElementById("comparison-results"),
-
-  btnLoadDemo: document.getElementById("btn-load-demo"),
-  btnLoadArchive: document.getElementById("btn-load-archive"),
-  btnClearAll: document.getElementById("btn-clear-all"),
   btnCompare: document.getElementById("btn-compare"),
-  btnSaveDb: document.getElementById("btn-save-db"),
 };
 
 function showAlert(message, kind = "error") {
@@ -71,6 +96,16 @@ function showAlert(message, kind = "error") {
 function clearAlert() {
   els.alertBox.hidden = true;
   els.alertBox.textContent = "";
+}
+
+function openAccountModal() {
+  els.accountBackdrop.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeAccountModal() {
+  els.accountBackdrop.hidden = true;
+  document.body.style.overflow = "";
 }
 
 function parseCsvList(value) {
@@ -101,275 +136,176 @@ function formatConversions(conversions) {
 
 function applyScenarioToForm(scenario) {
   els.scenarioTitle.value = scenario.title || "";
+  els.scenarioCity.value = scenario.city || "";
+  els.scenarioOnline.checked = Boolean(scenario.is_online);
+  els.scenarioWorks.value = (scenario.required_works || []).join(", ");
   els.scenarioVolume.value = scenario.volume || "1";
   els.scenarioUnit.value = scenario.pricing_unit || "fixed";
-  els.scenarioWorks.value = (scenario.required_works || []).join(", ");
   els.scenarioComponents.value = (scenario.required_components || []).join(", ");
   els.scenarioConditions.value = (scenario.conditions || []).join(", ");
   els.scenarioConversions.value = formatConversions(scenario.unit_conversions);
+
+  const hasExtra =
+    (scenario.required_components && scenario.required_components.length > 0) ||
+    (scenario.conditions && scenario.conditions.length > 0) ||
+    (scenario.unit_conversions && Object.keys(scenario.unit_conversions).length > 0);
+  if (els.scenarioExtraDetails) {
+    els.scenarioExtraDetails.open = Boolean(hasExtra);
+  }
 }
 
 function readScenarioFromForm() {
-  return {
-    id: "workspace-scenario",
+  if (!state.scenarioId) {
+    state.scenarioId = `scen-${Date.now()}`;
+  }
+  const base = {
+    id: state.scenarioId,
     title: els.scenarioTitle.value.trim() || "Сценарий заказа",
+    city: els.scenarioCity.value.trim() || null,
+    is_online: Boolean(els.scenarioOnline.checked),
+    required_works: parseCsvList(els.scenarioWorks.value),
+  };
+  if (!state.user) {
+    return {
+      ...base,
+      volume: "1",
+      pricing_unit: "fixed",
+      required_components: [],
+      conditions: [],
+      unit_conversions: {},
+    };
+  }
+  return {
+    ...base,
     volume: els.scenarioVolume.value.trim() || "1",
     pricing_unit: els.scenarioUnit.value.trim() || "fixed",
-    required_works: parseCsvList(els.scenarioWorks.value),
     required_components: parseCsvList(els.scenarioComponents.value),
     conditions: parseCsvList(els.scenarioConditions.value),
     unit_conversions: parseConversions(els.scenarioConversions.value),
   };
 }
 
-function renderManualSurcharges() {
-  if (!state.manualSurcharges.length) {
-    els.surchargesContainer.innerHTML = "";
-    return;
+function renderAccountUi() {
+  if (state.user) {
+    els.accountPillText.textContent = `${state.user.email} · ${state.creditsBalance} кр.`;
+    els.creditsBadge.textContent = `Баланс: ${state.creditsBalance} кр.`;
+    els.accountSummarySub.textContent = `Вход выполнен: ${state.user.email}`;
+    els.accountUserEmail.textContent = state.user.email;
+    els.accountBalance.textContent = String(state.creditsBalance);
+    els.companyStatusHint.textContent = state.hasCompanyProfile ? "Заполнено" : "Не заполнено";
+    els.authGuestView.hidden = true;
+    els.authUserView.hidden = false;
+    els.guestScenarioHint.hidden = true;
+    els.authScenarioExtras.hidden = false;
+  } else {
+    els.accountPillText.textContent = "Войти";
+    els.creditsBadge.textContent = "Гость";
+    els.accountSummarySub.textContent = "Войдите по одноразовому коду на email";
+    els.authGuestView.hidden = false;
+    els.authUserView.hidden = true;
+    els.guestScenarioHint.hidden = false;
+    els.authScenarioExtras.hidden = true;
   }
+}
 
-  els.surchargesContainer.innerHTML = state.manualSurcharges
-    .map(
-      (s, idx) => `
-      <div class="surcharge-row" data-s-row="${idx}">
-        <input class="input" type="text" placeholder="Название" value="${s.name}" data-s-field="name" />
-        <input class="input" type="number" min="0" step="any" placeholder="Сумма" value="${s.amount}" data-s-field="amount" />
-        <input class="input" type="text" placeholder="Ед. (fixed)" value="${s.unit}" data-s-field="unit" />
-        <button type="button" class="btn btn-ghost btn-sm" data-s-del="${idx}">×</button>
-        <label class="checkbox-row" style="grid-column: 1 / -1;">
-          <input type="checkbox" ${s.is_mandatory ? "checked" : ""} data-s-field="is_mandatory" />
-          Обязательная доплата (если снято — условная, активируется по условию ниже)
-        </label>
-        <input class="input" style="grid-column: 1 / -1;" type="text" placeholder="Условие (например: срочно)" value="${s.condition_description}" data-s-field="condition_description" />
-      </div>
-    `
-    )
-    .join("");
-
-  els.surchargesContainer.querySelectorAll("[data-s-row]").forEach((row) => {
-    const idx = Number(row.getAttribute("data-s-row"));
-    row.querySelectorAll("[data-s-field]").forEach((input) => {
-      const field = input.getAttribute("data-s-field");
-      input.addEventListener("input", () => {
-        if (field === "is_mandatory") {
-          state.manualSurcharges[idx][field] = input.checked;
-        } else {
-          state.manualSurcharges[idx][field] = input.value;
-        }
-      });
-      if (field === "is_mandatory") {
-        input.addEventListener("change", () => {
-          state.manualSurcharges[idx][field] = input.checked;
-        });
+async function refreshAccountState() {
+  try {
+    const me = await getMe();
+    state.user = me.user;
+    state.creditsBalance = me.credits_balance ?? 0;
+    state.hasCompanyProfile = Boolean(me.has_company_profile);
+    if (state.hasCompanyProfile) {
+      try {
+        const company = await getCompanyProfile();
+        els.companyProviderType.value = company.provider_type || "unknown";
+        els.companyProvider.value = company.provider_name || "";
+        els.companyTitle.value = company.service_title || "";
+        els.companyPrice.value = company.base_price ?? "";
+        els.companyUnit.value = company.pricing_unit || "";
+        els.companyCity.value = company.city || "";
+        els.companyOnline.checked = Boolean(company.is_online);
+        els.companyWorks.value = (company.included_works || []).join(", ");
+        els.companyComponents.value = (company.included_components || []).join(", ");
+        els.companyExclusions.value = (company.exclusions_or_limits || []).join(", ");
+      } catch {
+        // Профиль ещё не создан
       }
-    });
-  });
-
-  els.surchargesContainer.querySelectorAll("[data-s-del]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.getAttribute("data-s-del"));
-      state.manualSurcharges.splice(idx, 1);
-      renderManualSurcharges();
-    });
-  });
-}
-
-function resetManualForm() {
-  state.editingIndex = null;
-  els.offerProvider.value = "";
-  els.offerTitle.value = "";
-  els.offerPrice.value = "";
-  els.offerUnit.value = "";
-  els.offerWorks.value = "";
-  els.offerComponents.value = "";
-  els.offerExclusions.value = "";
-  els.offerConditions.value = "";
-  els.offerMinVolume.value = "";
-  els.offerMaxVolume.value = "";
-  state.manualSurcharges = [];
-  renderManualSurcharges();
-
-  els.btnAddOffer.textContent = "Добавить предложение в список";
-  els.btnCancelEdit.hidden = true;
-}
-
-function startEditingOffer(index) {
-  const offer = state.offers[index];
-  if (!offer) return;
-
-  clearAlert();
-  switchTab("manual");
-  state.editingIndex = index;
-
-  els.offerProvider.value = offer.provider_name || "";
-  els.offerTitle.value = offer.service_title || "";
-  els.offerPrice.value =
-    offer.base_price !== null && offer.base_price !== undefined ? String(offer.base_price) : "";
-  els.offerUnit.value = offer.pricing_unit || "";
-  els.offerWorks.value = (offer.included_works || []).join(", ");
-  els.offerComponents.value = (offer.included_components || []).join(", ");
-  els.offerExclusions.value = (offer.exclusions_or_limits || []).join(", ");
-  els.offerConditions.value = (offer.conditions || []).join(", ");
-  els.offerMinVolume.value = offer.min_volume ? String(offer.min_volume) : "";
-  els.offerMaxVolume.value = offer.max_volume ? String(offer.max_volume) : "";
-
-  state.manualSurcharges = (offer.surcharges || []).map((s) => ({
-    name: s.name || "",
-    amount: s.amount !== undefined && s.amount !== null ? String(s.amount) : "0",
-    unit: s.unit || "fixed",
-    is_mandatory: Boolean(s.is_mandatory),
-    condition_description: s.condition_description || "",
-  }));
-  renderManualSurcharges();
-
-  const hasExtra =
-    (offer.included_components && offer.included_components.length) ||
-    (offer.exclusions_or_limits && offer.exclusions_or_limits.length) ||
-    (offer.conditions && offer.conditions.length) ||
-    offer.min_volume ||
-    offer.max_volume ||
-    state.manualSurcharges.length > 0;
-  if (els.offerExtraDetails && hasExtra) {
-    els.offerExtraDetails.open = true;
+    }
+  } catch {
+    state.user = null;
+    state.creditsBalance = 0;
+    state.hasCompanyProfile = false;
   }
-
-  els.btnAddOffer.textContent = "Сохранить изменения";
-  els.btnCancelEdit.hidden = false;
-
-  const stepOffers = document.getElementById("step-offers");
-  if (stepOffers) {
-    stepOffers.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  renderAccountUi();
 }
 
-function refreshOffers() {
-  renderOffersList(els.offersList, state.offers, {
-    onEdit: (idx) => startEditingOffer(idx),
-    onRemove: (idx) => {
-      if (state.editingIndex === idx) {
-        resetManualForm();
-      } else if (state.editingIndex !== null && idx < state.editingIndex) {
-        state.editingIndex -= 1;
-      }
-      state.offers.splice(idx, 1);
-      refreshOffers();
+function displayCurrentReport(report, scenarioTitle) {
+  state.lastReport = report;
+  state.lastScenarioTitle = scenarioTitle;
+  renderComparisonReport(els.resultsContainer, report, scenarioTitle, {
+    segmentFilter: state.segmentFilter,
+    onUnlock: (btn) => handleUnlockReport(report.scenario_id, scenarioTitle, btn),
+    onFilterChange: (nextFilter) => {
+      state.segmentFilter = nextFilter;
+      displayCurrentReport(state.lastReport, state.lastScenarioTitle);
     },
   });
 }
 
-function switchTab(mode) {
-  const isManual = mode === "manual";
-  els.tabManual.setAttribute("aria-selected", String(isManual));
-  els.tabLlm.setAttribute("aria-selected", String(!isManual));
-  els.panelManual.hidden = !isManual;
-  els.panelLlm.hidden = isManual;
-}
-
-els.tabManual.addEventListener("click", () => switchTab("manual"));
-els.tabLlm.addEventListener("click", () => switchTab("llm"));
-els.btnCancelEdit.addEventListener("click", () => resetManualForm());
-
-els.btnAddSurcharge.addEventListener("click", () => {
-  state.manualSurcharges.push({
-    name: "",
-    amount: "0",
-    unit: "fixed",
-    is_mandatory: true,
-    condition_description: "",
-  });
-  renderManualSurcharges();
-});
-
-els.btnAddOffer.addEventListener("click", () => {
+async function handleUnlockReport(scenarioId, scenarioTitle, unlockBtn) {
   clearAlert();
-  const provider = els.offerProvider.value.trim();
-  const title = els.offerTitle.value.trim();
-  if (!provider || !title) {
-    showAlert("Укажите название исполнителя и название услуги.");
+  if (!state.user) {
+    openAccountModal();
+    showAlert("Войдите по email-коду, чтобы открыть полный отчёт.");
     return;
   }
-
-  const surcharges = state.manualSurcharges
-    .filter((s) => s.name.trim())
-    .map((s) => ({
-      name: s.name.trim(),
-      amount: s.amount || "0",
-      unit: s.unit.trim() || "fixed",
-      is_mandatory: Boolean(s.is_mandatory),
-      condition_description: s.condition_description.trim() || null,
-    }));
-
-  const existingId =
-    state.editingIndex !== null && state.offers[state.editingIndex]
-      ? state.offers[state.editingIndex].id
-      : `offer-${Date.now()}`;
-
-  const offer = {
-    id: existingId,
-    provider_name: provider,
-    service_title: title,
-    base_price: els.offerPrice.value.trim() ? els.offerPrice.value.trim() : null,
-    pricing_unit: els.offerUnit.value.trim() ? els.offerUnit.value.trim() : null,
-    included_works: parseCsvList(els.offerWorks.value),
-    included_components: parseCsvList(els.offerComponents.value),
-    exclusions_or_limits: parseCsvList(els.offerExclusions.value),
-    conditions: parseCsvList(els.offerConditions.value),
-    min_volume: els.offerMinVolume.value.trim() || null,
-    max_volume: els.offerMaxVolume.value.trim() || null,
-    surcharges,
-  };
-
-  if (state.editingIndex !== null) {
-    state.offers[state.editingIndex] = offer;
-    showAlert(`Предложение от «${offer.provider_name}» обновлено.`, "ok");
-  } else {
-    state.offers.push(offer);
+  if (unlockBtn) {
+    unlockBtn.disabled = true;
+    unlockBtn.textContent = "Открываем...";
   }
-
-  resetManualForm();
-  refreshOffers();
-});
-
-els.btnExtractLlm.addEventListener("click", async () => {
-  clearAlert();
-  const rawText = els.llmText.value.trim();
-  if (!rawText) {
-    showAlert("Вставьте текст предложения конкурента для извлечения.");
-    return;
-  }
-
-  els.btnExtractLlm.disabled = true;
-  els.btnExtractLlm.textContent = "Извлекаем...";
   try {
-    const offer = await extractOfferFromText(rawText, els.llmProvider.value);
-    state.offers.push(offer);
-    refreshOffers();
-    els.llmText.value = "";
-    els.llmProvider.value = "";
-    showAlert(
-      `Предложение от «${offer.provider_name}» добавлено. При необходимости нажмите «Изменить» для правки.`,
-      "ok"
-    );
+    const report = await unlockScenarioReport(scenarioId);
+    await refreshAccountState();
+    state.segmentFilter = "all";
+    displayCurrentReport(report, scenarioTitle);
+    showAlert("Полный отчёт разблокирован.", "ok");
   } catch (err) {
-    showAlert(err.message);
+    if (err.status === 402) {
+      openAccountModal();
+      showAlert("Недостаточно кредитов (требуется 1 кредит). Пополните баланс в кабинете.");
+    } else {
+      showAlert(err.message);
+    }
   } finally {
-    els.btnExtractLlm.disabled = false;
-    els.btnExtractLlm.textContent = "Извлечь через LLM";
+    if (unlockBtn && document.body.contains(unlockBtn)) {
+      unlockBtn.disabled = false;
+      unlockBtn.textContent = "Открыть полный отчёт (1 кредит)";
+    }
   }
-});
+}
 
 async function runCompare(scrollToResults = false) {
   clearAlert();
-  if (!state.offers.length) {
-    showAlert("Добавьте хотя бы одно предложение для сравнения.");
-    return;
-  }
-
   els.btnCompare.disabled = true;
   try {
     const scenario = readScenarioFromForm();
-    const results = await compareDirect(scenario, state.offers);
-    renderComparisonResults(els.resultsContainer, results, scenario.title);
+    await saveScenario(scenario);
+    if (state.offers.length) {
+      await Promise.all(state.offers.map((offer) => saveOffer(offer)));
+    }
+    const report = await getScenarioReport(scenario.id);
+    if (!report.results.length && !report.own_result) {
+      renderComparisonResults(els.resultsContainer, [], scenario.title, {
+        onDemo: loadDemoReport,
+      });
+      showAlert(
+        "В базе пока нет предложений рынка. Нажмите «Посмотреть на примере готового отчёта» ниже или заполните профиль компании."
+      );
+      return;
+    }
+
+    state.segmentFilter = "all";
+    displayCurrentReport(report, scenario.title);
     if (scrollToResults) {
       const resultsSection = document.getElementById("step-results");
       if (resultsSection) {
@@ -383,70 +319,15 @@ async function runCompare(scrollToResults = false) {
   }
 }
 
-els.btnCompare.addEventListener("click", () => runCompare(true));
-
-els.btnSaveDb.addEventListener("click", async () => {
+async function loadDemoReport() {
   clearAlert();
-  if (!state.offers.length) {
-    showAlert("Добавьте предложения перед сохранением.");
-    return;
-  }
-  els.btnSaveDb.disabled = true;
-  try {
-    const scenario = readScenarioFromForm();
-    await saveScenario(scenario);
-    for (const offer of state.offers) {
-      await saveOffer(offer);
-    }
-    showAlert("Сценарий и предложения сохранены в архив SQLite.", "ok");
-  } catch (err) {
-    showAlert(err.message);
-  } finally {
-    els.btnSaveDb.disabled = false;
-  }
-});
-
-els.btnLoadArchive.addEventListener("click", async () => {
-  clearAlert();
-  els.btnLoadArchive.disabled = true;
-  try {
-    const [scenarios, offers] = await Promise.all([listScenarios(), listOffers()]);
-    if (!scenarios.length && !offers.length) {
-      showAlert("В архиве пока пусто. Сначала нажмите «Сохранить в архив».");
-      return;
-    }
-
-    resetManualForm();
-    if (scenarios.length) {
-      applyScenarioToForm(scenarios[scenarios.length - 1]);
-    }
-    if (offers.length) {
-      state.offers = offers;
-      refreshOffers();
-      await runCompare(false);
-    } else {
-      state.offers = [];
-      refreshOffers();
-      renderComparisonResults(els.resultsContainer, []);
-    }
-    showAlert(
-      `Загружено из архива: сценариев — ${scenarios.length ? 1 : 0}, предложений — ${offers.length}.`,
-      "ok"
-    );
-  } catch (err) {
-    showAlert(err.message);
-  } finally {
-    els.btnLoadArchive.disabled = false;
-  }
-});
-
-els.btnLoadDemo.addEventListener("click", async () => {
-  clearAlert();
-  resetManualForm();
+  state.scenarioId = null;
   applyScenarioToForm({
     title: "Срочная настройка под ключ",
     volume: "10",
     pricing_unit: "hour",
+    city: null,
+    is_online: false,
     required_works: ["аудит", "настройка"],
     required_components: ["материалы"],
     conditions: ["срочно"],
@@ -457,6 +338,7 @@ els.btnLoadDemo.addEventListener("click", async () => {
     {
       id: "demo-1",
       provider_name: "Специалист Андрей",
+      provider_type: "private",
       service_title: "Настройка по ставке за час",
       base_price: "1000",
       pricing_unit: "час",
@@ -486,6 +368,7 @@ els.btnLoadDemo.addEventListener("click", async () => {
     {
       id: "demo-2",
       provider_name: "Студия «Квадрат»",
+      provider_type: "company",
       service_title: "Пакет под ключ",
       base_price: "12000",
       pricing_unit: "fixed",
@@ -498,6 +381,7 @@ els.btnLoadDemo.addEventListener("click", async () => {
     {
       id: "demo-3",
       provider_name: "Мастерская «Профи»",
+      provider_type: "company",
       service_title: "Индивидуальный расчёт",
       base_price: null,
       pricing_unit: null,
@@ -510,6 +394,7 @@ els.btnLoadDemo.addEventListener("click", async () => {
     {
       id: "demo-4",
       provider_name: "Агентство «Стартер»",
+      provider_type: "company",
       service_title: "Базовый аудит",
       base_price: "900",
       pricing_unit: "hour",
@@ -521,17 +406,186 @@ els.btnLoadDemo.addEventListener("click", async () => {
     },
   ];
 
-  refreshOffers();
   await runCompare(true);
+}
+
+els.accountPill.addEventListener("click", openAccountModal);
+els.btnGuestLoginLink.addEventListener("click", openAccountModal);
+els.btnCloseAccount.addEventListener("click", closeAccountModal);
+els.accountBackdrop.addEventListener("click", (event) => {
+  if (event.target === els.accountBackdrop) {
+    closeAccountModal();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.accountBackdrop.hidden) {
+    closeAccountModal();
+  }
 });
 
-els.btnClearAll.addEventListener("click", () => {
+els.btnRequestCode.addEventListener("click", async () => {
   clearAlert();
-  resetManualForm();
-  state.offers = [];
-  refreshOffers();
-  renderComparisonResults(els.resultsContainer, []);
+  const email = els.authEmail.value.trim();
+  if (!email) {
+    showAlert("Введите email для получения одноразового кода.");
+    return;
+  }
+  els.btnRequestCode.disabled = true;
+  try {
+    await requestAuthCode(email);
+    els.authCodeField.hidden = false;
+    els.btnVerifyCode.hidden = false;
+    showAlert("Одноразовый код отправлен (в dev-режиме — смотрите консоль сервера).", "ok");
+  } catch (err) {
+    showAlert(err.message);
+  } finally {
+    els.btnRequestCode.disabled = false;
+  }
 });
 
-refreshOffers();
-renderComparisonResults(els.resultsContainer, []);
+els.btnVerifyCode.addEventListener("click", async () => {
+  clearAlert();
+  const email = els.authEmail.value.trim();
+  const code = els.authCode.value.trim();
+  if (!email || !code) {
+    showAlert("Введите email и 6-значный код.");
+    return;
+  }
+  els.btnVerifyCode.disabled = true;
+  try {
+    await verifyAuthCode(email, code);
+    els.authCode.value = "";
+    await refreshAccountState();
+    showAlert("Вы успешно вошли в систему.", "ok");
+  } catch (err) {
+    showAlert(err.message);
+  } finally {
+    els.btnVerifyCode.disabled = false;
+  }
+});
+
+els.btnLogout.addEventListener("click", async () => {
+  clearAlert();
+  try {
+    await logoutUser();
+    await refreshAccountState();
+    closeAccountModal();
+    showAlert("Вы вышли из аккаунта.", "ok");
+  } catch (err) {
+    showAlert(err.message);
+  }
+});
+
+els.btnTopupDev.addEventListener("click", async () => {
+  clearAlert();
+  els.btnTopupDev.disabled = true;
+  try {
+    const res = await topupCredits(1);
+    state.creditsBalance = res.balance;
+    renderAccountUi();
+    showAlert(`Начислен 1 тестовый кредит. Баланс: ${res.balance} кр.`, "ok");
+  } catch (err) {
+    showAlert(err.message);
+  } finally {
+    els.btnTopupDev.disabled = false;
+  }
+});
+
+els.btnLoadArchive.addEventListener("click", async () => {
+  clearAlert();
+  els.btnLoadArchive.disabled = true;
+  try {
+    const [scenarios, offers] = await Promise.all([listScenarios(), listOffers()]);
+    if (!scenarios.length && !offers.length) {
+      showAlert("В архиве пока пусто.");
+      return;
+    }
+    if (scenarios.length) {
+      const latestScenario = scenarios[scenarios.length - 1];
+      state.scenarioId = latestScenario.id;
+      applyScenarioToForm(latestScenario);
+    }
+    state.offers = offers;
+    closeAccountModal();
+    await runCompare(true);
+  } catch (err) {
+    showAlert(err.message);
+  } finally {
+    els.btnLoadArchive.disabled = false;
+  }
+});
+
+els.btnSaveCompany.addEventListener("click", async () => {
+  clearAlert();
+  const provider = els.companyProvider.value.trim();
+  const title = els.companyTitle.value.trim();
+  if (!provider || !title) {
+    showAlert("Укажите название вашей компании и услуги.");
+    return;
+  }
+  els.btnSaveCompany.disabled = true;
+  try {
+    await saveCompanyProfile({
+      id: "own",
+      provider_name: provider,
+      provider_type: els.companyProviderType.value || "unknown",
+      service_title: title,
+      base_price: els.companyPrice.value.trim() || null,
+      pricing_unit: els.companyUnit.value.trim() || null,
+      city: els.companyCity.value.trim() || null,
+      is_online: Boolean(els.companyOnline.checked),
+      included_works: parseCsvList(els.companyWorks.value),
+      included_components: parseCsvList(els.companyComponents.value),
+      exclusions_or_limits: parseCsvList(els.companyExclusions.value),
+    });
+    state.hasCompanyProfile = true;
+    renderAccountUi();
+    showAlert("Профиль вашей компании сохранён и будет учитываться в сравнениях.", "ok");
+  } catch (err) {
+    showAlert(err.message);
+  } finally {
+    els.btnSaveCompany.disabled = false;
+  }
+});
+
+els.btnExtractScenario.addEventListener("click", async () => {
+  clearAlert();
+  const rawText = els.scenarioFreeText.value.trim();
+  if (!rawText) {
+    showAlert("Опишите задачу своими словами перед разбором через LLM.");
+    return;
+  }
+  els.btnExtractScenario.disabled = true;
+  els.btnExtractScenario.textContent = "Разбираем...";
+  try {
+    const draft = await extractScenarioDetails(rawText, els.scenarioTitle.value.trim() || null);
+    els.scenarioWorks.value = (draft.required_works || []).join(", ");
+    els.scenarioComponents.value = (draft.required_components || []).join(", ");
+    els.scenarioConditions.value = (draft.conditions || []).join(", ");
+    els.scenarioExtraDetails.open = true;
+    els.scenarioDraftBadge.hidden = !draft.needs_confirmation;
+    showAlert("Теги извлечены. Проверьте их и нажмите «Подтвердить теги».", "ok");
+  } catch (err) {
+    if (err.status === 401) {
+      openAccountModal();
+      showAlert("Войдите по email-коду, чтобы использовать LLM-разбор описания.");
+    } else {
+      showAlert(err.message);
+    }
+  } finally {
+    els.btnExtractScenario.disabled = false;
+    els.btnExtractScenario.textContent = "Разобрать в теги (LLM)";
+  }
+});
+
+els.btnConfirmScenarioTags.addEventListener("click", () => {
+  els.scenarioDraftBadge.hidden = true;
+  showAlert("Теги сценария подтверждены.", "ok");
+});
+
+els.btnCompare.addEventListener("click", () => runCompare(true));
+
+renderComparisonResults(els.resultsContainer, [], "задачу", {
+  onDemo: loadDemoReport,
+});
+refreshAccountState();

@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Сравнение услуг — СметАнализ</title>
-    <meta name="description" content="Рабочий стол сравнения предложений исполнителей под единый сценарий заказа." />
+    <meta name="description" content="Интеллектуальное сравнение услуг и позиционирования на рынке." />
+    <meta name="theme-color" content="#FBFBF9" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -30,10 +31,15 @@
         </nav>
 
         <div class="header-actions">
-          <span class="demo-pill" title="Аккаунты и кредиты планируются на следующем этапе">
+          <button
+            type="button"
+            id="account-pill"
+            class="demo-pill account-pill-btn"
+            title="Вход, баланс кредитов и профиль компании"
+          >
             <span class="demo-dot" aria-hidden="true"></span>
-            Демо-режим
-          </span>
+            <span id="account-pill-text">Войти</span>
+          </button>
           <button
             type="button"
             id="theme-toggle"
@@ -55,241 +61,120 @@
     <main id="main" class="container-narrow workspace-main">
       <div class="workspace-hero">
         <div class="heading-group">
-          <h1 class="workspace-title">Сравнение предложений под ваш заказ</h1>
+          <h1 class="workspace-title">Оценка услуги и позиции на рынке</h1>
           <p class="workspace-subtitle">
-            Опишите задачу, добавьте прайсы исполнителей и за секунду узнайте, кто выгоднее на самом деле.
+            Укажите услугу, город и ключевые работы — мы сопоставим предложения конкурентов и покажем реальную картину.
           </p>
         </div>
-        <div class="toolbar-actions">
-          <button type="button" id="btn-load-demo" class="btn btn-secondary">
-            Загрузить пример смет
-          </button>
-          <button type="button" id="btn-load-archive" class="btn btn-secondary">
-            Загрузить из архива
-          </button>
-          <button type="button" id="btn-clear-all" class="btn btn-ghost">
-            Очистить
-          </button>
-        </div>
       </div>
-
-      <nav class="step-rail" aria-label="Шаги сравнения">
-        <a class="step-link" href="#step-scenario">1. Сценарий</a>
-        <a class="step-link" href="#step-offers">2. Предложения (<span id="offers-count">0</span>)</a>
-        <a class="step-link" href="#step-results">3. Сравнение</a>
-      </nav>
 
       <div id="workspace-alert" class="alert" role="status" hidden></div>
 
       <div class="step-stack">
-        <!-- ШАГ 1: СЦЕНАРИЙ -->
+        <!-- ШАГ 1: КОМПАКТНЫЙ СЦЕНАРИЙ -->
         <section id="step-scenario" class="step-block">
-          <div class="step-head">
-            <h2 class="step-title">Шаг 1. Сценарий заказа</h2>
-            <p class="step-desc">
-              Опишите задачу, под которую сравниваются все предложения.
-            </p>
-          </div>
-
           <div class="field">
-            <label for="scenario-title">Название задачи</label>
-            <input id="scenario-title" class="input" type="text" value="Срочная настройка под ключ" />
+            <label for="scenario-title">Какую услугу оцениваем?</label>
+            <input id="scenario-title" class="input" type="text" placeholder="Например: Генеральная уборка квартиры" value="Срочная настройка под ключ" />
           </div>
 
           <div class="field-grid">
             <div class="field">
-              <label for="scenario-volume">Требуемый объём</label>
-              <input id="scenario-volume" class="input tabular" type="number" min="0.01" step="any" value="10" />
+              <label for="scenario-city">Город</label>
+              <input id="scenario-city" class="input" type="text" placeholder="Например: Екатеринбург" />
             </div>
-            <div class="field">
-              <label for="scenario-unit">Единица измерения</label>
-              <input id="scenario-unit" class="input" type="text" value="hour" />
-              <span class="field-hint">Любая единица: fixed, hour, sqm, month, session</span>
+            <div class="field" style="justify-content: flex-end;">
+              <label class="checkbox-row">
+                <input id="scenario-online" type="checkbox" />
+                Можно выполнить онлайн
+              </label>
             </div>
           </div>
 
           <div class="field">
-            <label for="scenario-works">Обязательные работы (через запятую)</label>
-            <input id="scenario-works" class="input" type="text" value="аудит, настройка" />
+            <label for="scenario-works">Что важно включить в услугу (необязательно)</label>
+            <input id="scenario-works" class="input" type="text" placeholder="Например: аудит, настройка, уборка кухни" value="аудит, настройка" />
           </div>
 
-          <details class="extra-details">
-            <summary>
-              <span>Компоненты, условия и переводы единиц</span>
-              <span class="field-hint">Раскрыть при необходимости</span>
-            </summary>
-
-            <div class="field">
-              <label for="scenario-components">Обязательные компоненты или материалы</label>
-              <input id="scenario-components" class="input" type="text" value="материалы" />
-            </div>
-
-            <div class="field">
-              <label for="scenario-conditions">Условия заказа</label>
-              <input id="scenario-conditions" class="input" type="text" value="срочно" />
-              <span class="field-hint">Активируют подходящие условные доплаты исполнителей</span>
-            </div>
-
-            <div class="field">
-              <label for="scenario-conversions">Перевод единиц (необязательно)</label>
-              <input id="scenario-conversions" class="input mono" type="text" placeholder="session: 8" />
-              <span class="field-hint">Формат: единица_предложения: множитель</span>
-            </div>
-          </details>
-        </section>
-
-        <!-- ШАГ 2: ПРЕДЛОЖЕНИЯ -->
-        <section id="step-offers" class="step-block">
-          <div class="step-head">
-            <h2 class="step-title">Шаг 2. Предложения исполнителей</h2>
-            <p class="step-desc">
-              Добавьте исполнителей вручную или извлеките параметры из готового текста через LLM.
-            </p>
+          <!-- Подсказка для неавторизованного пользователя -->
+          <div id="guest-scenario-hint" class="guest-hint-row">
+            <span class="field-hint">
+              Точный расчёт по объёму, LLM-разбор описания и сравнение со своей компанией доступны после
+              <button type="button" id="btn-guest-login-link" class="inline-link-btn">входа по email</button>.
+            </span>
           </div>
 
-          <div class="tabs" role="tablist" aria-label="Способ добавления предложения">
-            <button
-              type="button"
-              id="tab-manual"
-              class="tab-btn"
-              role="tab"
-              aria-selected="true"
-              aria-controls="panel-manual"
-            >
-              Вручную
-            </button>
-            <button
-              type="button"
-              id="tab-llm"
-              class="tab-btn"
-              role="tab"
-              aria-selected="false"
-              aria-controls="panel-llm"
-            >
-              Из текста (LLM)
-            </button>
-          </div>
-
-          <div id="panel-manual" role="tabpanel" aria-labelledby="tab-manual">
-            <div class="field-grid">
-              <div class="field">
-                <label for="offer-provider">Исполнитель</label>
-                <input id="offer-provider" class="input" type="text" placeholder="Студия А" />
-              </div>
-              <div class="field">
-                <label for="offer-title">Название услуги</label>
-                <input id="offer-title" class="input" type="text" placeholder="Настройка рекламы" />
-              </div>
-            </div>
-
-            <div class="field-grid">
-              <div class="field">
-                <label for="offer-price">Базовая цена</label>
-                <input id="offer-price" class="input tabular" type="number" min="0" step="any" placeholder="Пусто, если не указана" />
-              </div>
-              <div class="field">
-                <label for="offer-unit">Единица цены</label>
-                <input id="offer-unit" class="input" type="text" placeholder="hour / fixed / sqm" />
-              </div>
-            </div>
-
+          <!-- Расширенные поля (только для авторизованного пользователя) -->
+          <div id="auth-scenario-extras" hidden>
             <div class="field">
-              <label for="offer-works">Включённые работы (через запятую)</label>
-              <input id="offer-works" class="input" type="text" placeholder="аудит, настройка" />
+              <label for="scenario-free-text">Произвольное описание задачи (разбор через LLM)</label>
+              <textarea
+                id="scenario-free-text"
+                class="textarea"
+                style="min-height: 76px"
+                placeholder="Опишите своими словами: какие работы обязательны, нужны ли материалы исполнителя, срочность..."
+              ></textarea>
+              <div class="step-footer-actions" style="margin-top: 10px">
+                <button type="button" id="btn-extract-scenario" class="btn btn-secondary btn-sm">
+                  Разобрать в теги (LLM)
+                </button>
+                <span id="scenario-draft-badge" class="field-hint" hidden>
+                  Проверьте извлечённые теги и подтвердите:
+                  <button type="button" id="btn-confirm-scenario-tags" class="btn btn-ghost btn-sm">
+                    Подтвердить теги
+                  </button>
+                </span>
+              </div>
             </div>
 
-            <details id="offer-extra-details" class="extra-details">
+            <details id="scenario-extra-details" class="extra-details">
               <summary>
-                <span>Компоненты, ограничения, объём и доплаты</span>
+                <span>Объём, единица измерения, материалы и условия</span>
                 <span class="field-hint">Раскрыть при необходимости</span>
               </summary>
 
-              <div class="field">
-                <label for="offer-components">Включённые компоненты</label>
-                <input id="offer-components" class="input" type="text" placeholder="материалы" />
-              </div>
-
-              <div class="field">
-                <label for="offer-exclusions">Ограничения и исключения</label>
-                <input id="offer-exclusions" class="input" type="text" placeholder="что точно не входит" />
-              </div>
-
-              <div class="field">
-                <label for="offer-conditions">Условия выполнения</label>
-                <input id="offer-conditions" class="input" type="text" placeholder="срочно, онлайн" />
-              </div>
-
               <div class="field-grid">
                 <div class="field">
-                  <label for="offer-min-volume">Мин. объём</label>
-                  <input id="offer-min-volume" class="input tabular" type="number" min="0.01" step="any" />
+                  <label for="scenario-volume">Объём</label>
+                  <input id="scenario-volume" class="input tabular" type="number" min="0.01" step="any" value="10" />
                 </div>
                 <div class="field">
-                  <label for="offer-max-volume">Макс. объём</label>
-                  <input id="offer-max-volume" class="input tabular" type="number" min="0.01" step="any" />
+                  <label for="scenario-unit">Единица измерения</label>
+                  <input id="scenario-unit" class="input" type="text" value="hour" />
+                  <span class="field-hint">fixed, hour, sqm, month, session</span>
                 </div>
               </div>
 
               <div class="field">
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px">
-                  <label>Доплаты</label>
-                  <button type="button" id="btn-add-surcharge" class="btn btn-secondary btn-sm">
-                    + Добавить доплату
-                  </button>
-                </div>
-                <div id="manual-surcharges"></div>
+                <label for="scenario-components">Материалы и комплектующие</label>
+                <input id="scenario-components" class="input" type="text" value="материалы" />
+              </div>
+
+              <div class="field">
+                <label for="scenario-conditions">Условия заказа</label>
+                <input id="scenario-conditions" class="input" type="text" value="срочно" />
+              </div>
+
+              <div class="field">
+                <label for="scenario-conversions">Перевод единиц (необязательно)</label>
+                <input id="scenario-conversions" class="input mono" type="text" placeholder="session: 8" />
               </div>
             </details>
-
-            <div class="step-footer-actions">
-              <button type="button" id="btn-add-offer" class="btn btn-secondary">
-                Добавить предложение в список
-              </button>
-              <button type="button" id="btn-cancel-edit" class="btn btn-ghost" hidden>
-                Отменить редактирование
-              </button>
-            </div>
           </div>
-
-          <div id="panel-llm" role="tabpanel" aria-labelledby="tab-llm" hidden>
-            <div class="field">
-              <label for="llm-provider">Исполнитель (необязательно)</label>
-              <input id="llm-provider" class="input" type="text" placeholder="Если имя не указано в тексте" />
-            </div>
-            <div class="field">
-              <label for="llm-raw-text">Текст предложения конкурента</label>
-              <textarea
-                id="llm-raw-text"
-                class="textarea"
-                placeholder="Вставьте описание услуги с сайта или из прайса..."
-              ></textarea>
-              <span class="field-hint">Требует настроенного LLM_API_KEY в файле .env</span>
-            </div>
-            <div class="step-footer-actions">
-              <button type="button" id="btn-extract-llm" class="btn btn-secondary">
-                Извлечь через LLM
-              </button>
-            </div>
-          </div>
-
-          <div id="offers-list" class="offers-list"></div>
 
           <div class="step-footer-actions">
             <button type="button" id="btn-compare" class="btn btn-primary">
-              Показать реальную стоимость
-            </button>
-            <button type="button" id="btn-save-db" class="btn btn-secondary">
-              Сохранить в архив
+              Сравнить с рынком
             </button>
           </div>
         </section>
 
-        <!-- ШАГ 3: РЕЗУЛЬТАТ -->
+        <!-- РЕЗУЛЬТАТ И ПОЗИЦИОНИРОВАНИЕ -->
         <section id="step-results" class="step-block">
           <div class="step-head">
-            <h2 class="step-title">Шаг 3. Кто выгоднее на самом деле</h2>
+            <h2 class="step-title">Рынок и позиционирование</h2>
             <p class="step-desc">
-              Итоговый рейтинг от самого выгодного подходящего подрядчика к неподходящим, с разбором доплат и пробелов.
+              Сначала бесплатный аудит вашей услуги и превью рынка, а полный отчёт с разбором всех конкурентов — за 1 кредит.
             </p>
           </div>
 
@@ -297,6 +182,142 @@
         </section>
       </div>
     </main>
+
+    <!-- ЦЕНТРИРОВАННАЯ МОДАЛКА АВТОРИЗАЦИИ И КАБИНЕТА С БЛЮРОМ ФОНА -->
+    <div id="account-modal-backdrop" class="modal-backdrop" hidden>
+      <div
+        id="account-panel"
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-account-title"
+      >
+        <div class="modal-header">
+          <div>
+            <h2 id="modal-account-title" class="modal-title">Аккаунт и моя компания</h2>
+            <span id="account-summary-sub" class="field-hint">Войдите по одноразовому коду на email</span>
+          </div>
+          <div class="toolbar-actions">
+            <span id="credits-badge" class="badge-soft tabular">Гость</span>
+            <button type="button" id="btn-close-account" class="btn btn-ghost btn-sm" aria-label="Закрыть окно">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div id="auth-guest-view" class="modal-body">
+          <div class="field">
+            <label for="auth-email">Email для входа</label>
+            <input id="auth-email" class="input" type="email" placeholder="owner@company.ru" />
+          </div>
+          <div class="field" id="auth-code-field" hidden>
+            <label for="auth-code">Код из письма (в dev — в консоли сервера)</label>
+            <input id="auth-code" class="input mono" type="text" placeholder="123456" maxlength="6" />
+          </div>
+          <div class="step-footer-actions">
+            <button type="button" id="btn-request-code" class="btn btn-primary">
+              Получить код
+            </button>
+            <button type="button" id="btn-verify-code" class="btn btn-primary" hidden>
+              Подтвердить и войти
+            </button>
+          </div>
+        </div>
+
+        <div id="auth-user-view" class="modal-body" hidden>
+          <div class="account-user-bar">
+            <div>
+              <div class="account-email" id="account-user-email">—</div>
+              <div class="field-hint">Баланс: <strong id="account-balance" class="tabular">0</strong> кр.</div>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" id="btn-topup-dev" class="btn btn-secondary btn-sm">
+                +1 кредит (тест)
+              </button>
+              <button type="button" id="btn-load-archive" class="btn btn-secondary btn-sm">
+                Прошлая проверка
+              </button>
+              <button type="button" id="btn-logout" class="btn btn-ghost btn-sm">
+                Выйти
+              </button>
+            </div>
+          </div>
+
+          <details id="company-profile-details" class="extra-details">
+            <summary>
+              <span>Моя компания (участвует в сравнении автоматически)</span>
+              <span id="company-status-hint" class="field-hint">Не заполнено</span>
+            </summary>
+
+            <div class="field">
+              <label for="company-provider-type">Формат работы</label>
+              <select id="company-provider-type" class="input">
+                <option value="unknown">Не указывать</option>
+                <option value="company">Компания</option>
+                <option value="private">Частный исполнитель</option>
+              </select>
+            </div>
+
+            <div class="field-grid">
+              <div class="field">
+                <label for="company-provider">Название вашей компании</label>
+                <input id="company-provider" class="input" type="text" placeholder="Моя студия" />
+              </div>
+              <div class="field">
+                <label for="company-title">Название вашей услуги</label>
+                <input id="company-title" class="input" type="text" placeholder="Генеральная уборка" />
+              </div>
+            </div>
+
+            <div class="field-grid">
+              <div class="field">
+                <label for="company-price">Ваша базовая цена</label>
+                <input id="company-price" class="input tabular" type="number" min="0" step="any" placeholder="1200" />
+              </div>
+              <div class="field">
+                <label for="company-unit">Единица цены</label>
+                <input id="company-unit" class="input" type="text" placeholder="hour / sqm / fixed" />
+              </div>
+            </div>
+
+            <div class="field-grid">
+              <div class="field">
+                <label for="company-city">Город</label>
+                <input id="company-city" class="input" type="text" placeholder="Екатеринбург" />
+              </div>
+              <div class="field" style="justify-content: flex-end;">
+                <label class="checkbox-row">
+                  <input id="company-online" type="checkbox" />
+                  Оказываем услугу онлайн
+                </label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="company-works">Что входит в базу (через запятую)</label>
+              <input id="company-works" class="input" type="text" placeholder="аудит, настройка" />
+            </div>
+
+            <div class="field-grid">
+              <div class="field">
+                <label for="company-components">Материалы и компоненты</label>
+                <input id="company-components" class="input" type="text" placeholder="материалы" />
+              </div>
+              <div class="field">
+                <label for="company-exclusions">Исключения и ограничения</label>
+                <input id="company-exclusions" class="input" type="text" placeholder="что не входит" />
+              </div>
+            </div>
+
+            <div class="step-footer-actions">
+              <button type="button" id="btn-save-company" class="btn btn-secondary">
+                Сохранить мою компанию
+              </button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
 
     <footer class="site-footer">
       <div class="container footer-inner">
